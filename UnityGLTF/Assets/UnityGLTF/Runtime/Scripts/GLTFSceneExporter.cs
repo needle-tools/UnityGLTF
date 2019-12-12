@@ -1,7 +1,13 @@
-﻿using System;
+﻿#if UNITY_EDITOR
+#define ANIMATION_EXPORT_SUPPORTED
+#endif
+
+using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using GLTF.Schema;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -9,12 +15,25 @@ using UnityGLTF.Extensions;
 using CameraType = GLTF.Schema.CameraType;
 using WrapMode = GLTF.Schema.WrapMode;
 
+#if ANIMATION_EXPORT_SUPPORTED
+using UnityEditor;
+using UnityEditor.Animations;
+#endif
+
 namespace UnityGLTF
 {
 	public class ExportOptions
 	{
 		public GLTFSceneExporter.RetrieveTexturePathDelegate TexturePathRetriever = (texture) => texture.name;
 		public bool ExportInactivePrimitives = true;
+		public LayerMask ExportLayers = -1;
+
+		public ExportOptions()
+		{
+			var settings = GLTFSettings.GetOrCreateSettings();
+			if(settings.UseMainCameraVisibility)
+				ExportLayers = Camera.main ? Camera.main.cullingMask : -1;
+		}
 	}
 
 	public class GLTFSceneExporter
@@ -58,7 +77,12 @@ namespace UnityGLTF
 		private List<Texture> _textures;
 		private List<Material> _materials;
 		private bool _shouldUseInternalBufferForImages;
+		private Dictionary<int, int> _exportedTransforms;
+		private List<Transform> _animatedNodes;
+		private List<Transform> _skinnedNodes;
+		private Dictionary<SkinnedMeshRenderer, UnityEngine.Mesh> _bakedMeshes;
 
+		private int _exportLayerMask;
 		private ExportOptions _exportOptions;
 
 		private Material _metalGlossChannelSwapMaterial;
@@ -73,16 +97,105 @@ namespace UnityGLTF
 
 		protected struct PrimKey
 		{
+			public bool Equals(PrimKey other)
+			{
+				if (!Equals(Mesh, other.Mesh)) return false;
+				if (Materials == null && other.Materials == null) return true;
+				if (!(Materials != null && other.Materials != null)) return false;
+				if (!Equals(Materials.Length, other.Materials.Length)) return false;
+				for (var i = 0; i < Materials.Length; i++)
+				{
+					if (!Equals(Materials[i], other.Materials[i])) return false;
+				}
+
+				return true;
+			}
+
+			public override bool Equals(object obj)
+			{
+				return obj is PrimKey other && Equals(other);
+			}
+
+			public override int GetHashCode()
+			{
+				unchecked
+				{
+					var code = (Mesh != null ? Mesh.GetHashCode() : 0) * 397;
+					if (Materials != null)
+					{
+						code = code ^ Materials.Length.GetHashCode() * 397;
+						foreach (var mat in Materials)
+							code = (code ^ (mat != null ? mat.GetHashCode() : 0)) * 397;
+					}
+
+					return code;
+				}
+			}
+
 			public Mesh Mesh;
-			public Material Material;
+			public Material[] Materials;
 		}
+
+		private struct MeshAccessors
+		{
+			public AccessorId aPosition, aNormal, aTangent, aTexcoord0, aTexcoord1, aColor0;
+			public Dictionary<int, MeshPrimitive> subMeshPrimitives;
+		}
+
+		private struct BlendShapeAccessors
+		{
+			public List<Dictionary<string, AccessorId>> targets;
+			public List<Double> weights;
+			public List<string> targetNames;
+		}
+
 		private readonly Dictionary<PrimKey, MeshId> _primOwner = new Dictionary<PrimKey, MeshId>();
-		private readonly Dictionary<Mesh, MeshPrimitive[]> _meshToPrims = new Dictionary<Mesh, MeshPrimitive[]>();
+		private readonly Dictionary<Mesh, MeshAccessors> _meshToPrims = new Dictionary<Mesh, MeshAccessors>();
+		private readonly Dictionary<Mesh, BlendShapeAccessors> _meshToBlendShapeAccessors = new Dictionary<Mesh, BlendShapeAccessors>();
 
 		// Settings
-		public static bool ExportNames = true;
-		public static bool ExportFullPath = true;
-		public static bool RequireExtensions = false;
+		static GLTFSettings settings => GLTFSettings.GetOrCreateSettings();
+
+		public static bool ExportNames {
+			get { return settings.ExportNames; }
+			set { settings.ExportNames = value; }
+		}
+		public static bool ExportFullPath
+		{
+			get { return settings.ExportFullPath; }
+			set { settings.ExportFullPath = value; }
+		}
+		public static bool RequireExtensions
+		{
+			get { return settings.RequireExtensions; }
+			set { settings.RequireExtensions = value; }
+		}
+		public static bool TryExportTexturesFromDisk
+		{
+			get { return settings.TryExportTexturesFromDisk; }
+			set { settings.TryExportTexturesFromDisk = value; }
+		}
+		public static bool ExportAnimations
+		{
+			get { return settings.ExportAnimations; }
+			set { settings.ExportAnimations = value; }
+		}
+		public static bool BakeSkinnedMeshes
+		{
+			get { return settings.BakeSkinnedMeshes; }
+			set { settings.BakeSkinnedMeshes = value; }
+		}
+
+#if UNITY_EDITOR
+		public static string SaveFolderPath
+		{
+			get { return settings.SaveFolderPath; }
+			set { settings.SaveFolderPath = value; }
+		}
+#endif
+
+		private static int AnimationBakingFramerate = 30; // FPS
+		private static bool BakeAnimationData = true;
 
 		/// <summary>
 		/// Create a GLTFExporter that exports out a transform
@@ -101,6 +214,7 @@ namespace UnityGLTF
 		public GLTFSceneExporter(Transform[] rootTransforms, ExportOptions options)
 		{
 			_exportOptions = options;
+			_exportLayerMask = _exportOptions.ExportLayers;
 
 			var metalGlossChannelSwapShader = Resources.Load("MetalGlossChannelSwap", typeof(Shader)) as Shader;
 			_metalGlossChannelSwapMaterial = new Material(metalGlossChannelSwapShader);
@@ -109,9 +223,16 @@ namespace UnityGLTF
 			_normalChannelMaterial = new Material(normalChannelShader);
 
 			_rootTransforms = rootTransforms;
+
+			_exportedTransforms = new Dictionary<int, int>();
+			_animatedNodes = new List<Transform>();
+			_skinnedNodes = new List<Transform>();
+			_bakedMeshes = new Dictionary<SkinnedMeshRenderer, UnityEngine.Mesh>();
+
 			_root = new GLTFRoot
 			{
 				Accessors = new List<Accessor>(),
+				Animations = new List<GLTFAnimation>(),
 				Asset = new Asset
 				{
 					Version = "2.0"
@@ -125,6 +246,7 @@ namespace UnityGLTF
 				Nodes = new List<Node>(),
 				Samplers = new List<Sampler>(),
 				Scenes = new List<GLTFScene>(),
+				Skins = new List<Skin>(),
 				Textures = new List<GLTFTexture>()
 			};
 
@@ -157,9 +279,9 @@ namespace UnityGLTF
 		/// <param name="fileName">The name of the GLTF file</param>
 		public void SaveGLB(string path, string fileName)
 		{
+			var fullPath = GetFileName(path, fileName, ".glb");
 			_shouldUseInternalBufferForImages = true;
-			string fullPath = Path.Combine(path, Path.ChangeExtension(fileName, "glb"));
-			
+
 			using (FileStream glbFile = new FileStream(fullPath, FileMode.Create))
 			{
 				SaveGLBToStream(glbFile, fileName);
@@ -200,6 +322,16 @@ namespace UnityGLTF
 			TextWriter jsonWriter = new StreamWriter(jsonStream, Encoding.ASCII);
 
 			_root.Scene = ExportScene(sceneName, _rootTransforms);
+			if (ExportAnimations)
+			{
+				ExportAnimation();
+				// Export skins
+				for (int i = 0; i < _skinnedNodes.Count; ++i)
+				{
+					Transform t = _skinnedNodes[i];
+					ExportSkinFromNode(t);
+				}
+			}
 
 			_buffer.ByteLength = CalculateAlignment((uint)_bufferWriter.BaseStream.Length, 4);
 
@@ -295,15 +427,34 @@ namespace UnityGLTF
 		public void SaveGLTFandBin(string path, string fileName)
 		{
 			_shouldUseInternalBufferForImages = false;
-			var binFile = File.Create(Path.Combine(path, fileName + ".bin"));
+			var fullPath = GetFileName(path, fileName, ".bin");
+			var binFile = File.Create(fullPath);
 			_bufferWriter = new BinaryWriter(binFile);
 
+			// rotate 180°
+			if(_rootTransforms.Length > 1)
+				Debug.LogWarning("Exporting multiple selected objects will most likely fail with the current rotation flip to match USDZ behaviour. Make sure to select a single root transform before export.");
+			// foreach(var t in _rootTransforms)
+			// 	t.rotation *= Quaternion.Euler(0,180,0);
+
 			_root.Scene = ExportScene(fileName, _rootTransforms);
+			if (ExportAnimations)
+			{
+				ExportAnimation();
+				// Export skins
+				for (int i = 0; i < _skinnedNodes.Count; ++i)
+				{
+					Transform t = _skinnedNodes[i];
+					ExportSkinFromNode(t);
+
+					// updateProgress(EXPORT_STEP.SKINNING, i, _skinnedNodes.Count);
+				}
+			}
 			AlignToBoundary(_bufferWriter.BaseStream, 0x00);
 			_buffer.Uri = fileName + ".bin";
 			_buffer.ByteLength = CalculateAlignment((uint)_bufferWriter.BaseStream.Length, 4);
 
-			var gltfFile = File.CreateText(Path.Combine(path, fileName + ".gltf"));
+			var gltfFile = File.CreateText(Path.ChangeExtension(fullPath, ".gltf"));
 			_root.Serialize(gltfFile);
 
 #if WINDOWS_UWP
@@ -315,27 +466,89 @@ namespace UnityGLTF
 #endif
 			ExportImages(path);
 
+			// foreach(var t in _rootTransforms)
+			// 	t.rotation *= Quaternion.Euler(0,-180,0);
 		}
+
+		/// <summary>
+		/// Strip illegal chars and reserved words from a candidate filename (should not include the directory path)
+		/// </summary>
+		/// <remarks>
+		/// http://stackoverflow.com/questions/309485/c-sharp-sanitize-file-name
+		/// </remarks>
+		private static string EnsureValidFileName(string filename)
+		{
+			var invalidChars = Regex.Escape(new string(Path.GetInvalidFileNameChars()));
+			var invalidReStr = string.Format(@"[{0}]+", invalidChars);
+
+			var reservedWords = new []
+			{
+				"CON", "PRN", "AUX", "CLOCK$", "NUL", "COM0", "COM1", "COM2", "COM3", "COM4",
+				"COM5", "COM6", "COM7", "COM8", "COM9", "LPT0", "LPT1", "LPT2", "LPT3", "LPT4",
+				"LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+			};
+
+			var sanitisedNamePart = Regex.Replace(filename, invalidReStr, "_");
+			foreach (var reservedWord in reservedWords)
+			{
+				var reservedWordPattern = string.Format("^{0}\\.", reservedWord);
+				sanitisedNamePart = Regex.Replace(sanitisedNamePart, reservedWordPattern, "_reservedWord_.", RegexOptions.IgnoreCase);
+			}
+
+			return sanitisedNamePart;
+		}
+
+		/// <summary>
+		/// Ensures a specific file extension from an absolute path that may or may not already have that extension.
+		/// </summary>
+		/// <param name="absolutePathThatMayHaveExtension">Absolute path that may or may not already have the required extension</param>
+		/// <param name="requiredExtension">The extension to ensure, with leading dot</param>
+		/// <returns>An absolute path that has the required extension</returns>
+		private static string GetFileName(string directory, string fileNameThatMayHaveExtension, string requiredExtension)
+		{
+			var absolutePathThatMayHaveExtension = Path.Combine(directory, EnsureValidFileName(fileNameThatMayHaveExtension));
+
+			if (!requiredExtension.StartsWith(".", StringComparison.Ordinal))
+				requiredExtension = "." + requiredExtension;
+
+			if (!Path.GetExtension(absolutePathThatMayHaveExtension).Equals(requiredExtension, StringComparison.OrdinalIgnoreCase))
+				return absolutePathThatMayHaveExtension + requiredExtension;
+
+			return absolutePathThatMayHaveExtension;
+		}
+
 
 		private void ExportImages(string outputPath)
 		{
 			for (int t = 0; t < _imageInfos.Count; ++t)
 			{
 				var image = _imageInfos[t].texture;
-				int height = image.height;
-				int width = image.width;
 
-				switch (_imageInfos[t].textureMapType)
+				bool wasAbleToExportTexture = false;
+				if (TryExportTexturesFromDisk && TryGetTextureDataFromDisk(image, out string path, out byte[] imageBytes))
 				{
-					case TextureMapType.MetallicGloss:
-						ExportMetallicGlossTexture(image, outputPath);
-						break;
-					case TextureMapType.Bump:
-						ExportNormalTexture(image, outputPath);
-						break;
-					default:
-						ExportTexture(image, outputPath);
-						break;
+					var finalFilenamePath = ConstructImageFilenamePath(image, outputPath, Path.GetExtension(path));
+					//Debug.Log(finalFilenamePath + ", " + image.name, image);
+					if(IsPng(finalFilenamePath) || IsJpeg(finalFilenamePath)) {
+						wasAbleToExportTexture = true;
+						finalFilenamePath = Path.ChangeExtension(finalFilenamePath, Path.GetExtension(path));
+						File.WriteAllBytes(finalFilenamePath, imageBytes);
+					}
+				}
+
+				if(!wasAbleToExportTexture) {
+					switch (_imageInfos[t].textureMapType)
+					{
+						case TextureMapType.MetallicGloss:
+							ExportMetallicGlossTexture(image, outputPath);
+							break;
+						case TextureMapType.Bump:
+							ExportNormalTexture(image, outputPath);
+							break;
+						default:
+							ExportTexture(image, outputPath);
+							break;
+					}
 				}
 			}
 		}
@@ -353,11 +566,11 @@ namespace UnityGLTF
 
 			Graphics.Blit(texture, destRenderTexture, _metalGlossChannelSwapMaterial);
 
-			var exportTexture = new Texture2D(texture.width, texture.height);
+			var exportTexture = new Texture2D(texture.width, texture.height, TextureFormat.ARGB32, false, true);
 			exportTexture.ReadPixels(new Rect(0, 0, destRenderTexture.width, destRenderTexture.height), 0, 0);
 			exportTexture.Apply();
 
-			var finalFilenamePath = ConstructImageFilenamePath(texture, outputPath);
+			var finalFilenamePath = ConstructImageFilenamePath(texture, outputPath, "png");
 			File.WriteAllBytes(finalFilenamePath, exportTexture.EncodeToPNG());
 
 			RenderTexture.ReleaseTemporary(destRenderTexture);
@@ -383,11 +596,11 @@ namespace UnityGLTF
 
 			Graphics.Blit(texture, destRenderTexture, _normalChannelMaterial);
 
-			var exportTexture = new Texture2D(texture.width, texture.height);
+			var exportTexture = new Texture2D(texture.width, texture.height, TextureFormat.ARGB32, false);
 			exportTexture.ReadPixels(new Rect(0, 0, destRenderTexture.width, destRenderTexture.height), 0, 0);
 			exportTexture.Apply();
 
-			var finalFilenamePath = ConstructImageFilenamePath(texture, outputPath);
+			var finalFilenamePath = ConstructImageFilenamePath(texture, outputPath, "png");
 			File.WriteAllBytes(finalFilenamePath, exportTexture.EncodeToPNG());
 
 			RenderTexture.ReleaseTemporary(destRenderTexture);
@@ -411,7 +624,7 @@ namespace UnityGLTF
 			exportTexture.ReadPixels(new Rect(0, 0, destRenderTexture.width, destRenderTexture.height), 0, 0);
 			exportTexture.Apply();
 
-			var finalFilenamePath = ConstructImageFilenamePath(texture, outputPath);
+			var finalFilenamePath = ConstructImageFilenamePath(texture, outputPath, "png");
 			File.WriteAllBytes(finalFilenamePath, exportTexture.EncodeToPNG());
 
 			RenderTexture.ReleaseTemporary(destRenderTexture);
@@ -425,7 +638,7 @@ namespace UnityGLTF
 			}
 		}
 
-		private string ConstructImageFilenamePath(Texture2D texture, string outputPath)
+		private string ConstructImageFilenamePath(Texture2D texture, string outputPath, string enforceExtension = null)
 		{
 			var imagePath = _exportOptions.TexturePathRetriever(texture);
 			if (string.IsNullOrEmpty(imagePath))
@@ -440,7 +653,43 @@ namespace UnityGLTF
 			}
 			var file = new FileInfo(filenamePath);
 			file.Directory.Create();
-			return Path.ChangeExtension(filenamePath, ".png");
+			if(!string.IsNullOrEmpty(enforceExtension)) {
+				Path.ChangeExtension(filenamePath, enforceExtension);
+				if (enforceExtension.StartsWith(".") && !filenamePath.EndsWith(enforceExtension))
+					filenamePath += enforceExtension;
+				else if (!enforceExtension.StartsWith(".") && !filenamePath.EndsWith(enforceExtension))
+					filenamePath += "." + enforceExtension;
+			}
+			return filenamePath;
+		}
+
+		private void DeclareExtensionUsage(string extension, bool isRequired=false)
+		{
+			if( _root.ExtensionsUsed == null ){
+				_root.ExtensionsUsed = new List<string>();
+			}
+			if(!_root.ExtensionsUsed.Contains(extension))
+			{
+				_root.ExtensionsUsed.Add(extension);
+			}
+
+			if(isRequired){
+
+				if( _root.ExtensionsRequired == null ){
+					_root.ExtensionsRequired = new List<string>();
+				}
+				if( !_root.ExtensionsRequired.Contains(extension))
+				{
+					_root.ExtensionsRequired.Add(extension);
+				}
+			}
+		}
+
+		private bool ShouldExportTransform(Transform transform)
+		{
+			if (!settings.ExportDisabledGameObjects && !transform.gameObject.activeInHierarchy) return false;
+			if (settings.UseMainCameraVisibility && (_exportLayerMask >= 0 && _exportLayerMask != (_exportLayerMask | 1 << transform.gameObject.layer))) return false;
+			return true;
 		}
 
 		private SceneId ExportScene(string name, Transform[] rootObjTransforms)
@@ -455,6 +704,7 @@ namespace UnityGLTF
 			scene.Nodes = new List<NodeId>(rootObjTransforms.Length);
 			foreach (var transform in rootObjTransforms)
 			{
+				// if(!ShouldExportTransform(transform)) continue;
 				scene.Nodes.Add(ExportNode(transform));
 			}
 
@@ -476,20 +726,50 @@ namespace UnityGLTF
 				node.Name = nodeTransform.name;
 			}
 
+			if (nodeTransform.GetComponent<UnityEngine.Animation>() || nodeTransform.GetComponent<UnityEngine.Animator>())
+			{
+				_animatedNodes.Add(nodeTransform);
+			}
+			if (nodeTransform.GetComponent<SkinnedMeshRenderer>() && ContainsValidRenderer(nodeTransform.gameObject))
+			{
+				_skinnedNodes.Add(nodeTransform);
+			}
+
 			//export camera attached to node
 			Camera unityCamera = nodeTransform.GetComponent<Camera>();
-			if (unityCamera != null)
+			if (unityCamera != null && unityCamera.enabled)
 			{
 				node.Camera = ExportCamera(unityCamera);
 			}
 
-			node.SetUnityTransform(nodeTransform);
+            Light unityLight = nodeTransform.GetComponent<Light>();
+            if (unityLight != null && unityLight.enabled)
+            {
+                node.Light = ExportLight(unityLight);
 
-			var id = new NodeId
+                nodeTransform.rotation *= new Quaternion(0, -1, 0, 0);
+
+                node.SetUnityTransform(nodeTransform);
+
+                nodeTransform.rotation *= new Quaternion(0, 1, 0, 0);
+
+                //node.SetUnityTransformForce(nodeTransform,false); //forward is flipped
+            }
+            else
+            {
+                node.SetUnityTransform(nodeTransform);
+            }
+
+            var id = new NodeId
 			{
 				Id = _root.Nodes.Count,
 				Root = _root
 			};
+
+
+			// Register nodes for animation parsing (could be disabled is animation is disables)
+			_exportedTransforms.Add(nodeTransform.GetInstanceID(), _root.Nodes.Count);
+
 			_root.Nodes.Add(node);
 
 			// children that are primitives get put in a mesh
@@ -505,13 +785,13 @@ namespace UnityGLTF
 					var smr = prim.GetComponent<SkinnedMeshRenderer>();
 					if (smr != null)
 					{
-						_primOwner[new PrimKey { Mesh = smr.sharedMesh, Material = smr.sharedMaterial }] = node.Mesh;
+						_primOwner[new PrimKey { Mesh = smr.sharedMesh, Materials = smr.sharedMaterials }] = node.Mesh;
 					}
 					else
 					{
 						var filter = prim.GetComponent<MeshFilter>();
 						var renderer = prim.GetComponent<MeshRenderer>();
-						_primOwner[new PrimKey { Mesh = filter.sharedMesh, Material = renderer.sharedMaterial }] = node.Mesh;
+						_primOwner[new PrimKey { Mesh = filter.sharedMesh, Materials = renderer.sharedMaterials }] = node.Mesh;
 					}
 				}
 			}
@@ -522,6 +802,7 @@ namespace UnityGLTF
 				node.Children = new List<NodeId>(nonPrimitives.Length);
 				foreach (var child in nonPrimitives)
 				{
+					if(!ShouldExportTransform(child.transform)) continue;
 					node.Children.Add(ExportNode(child.transform));
 				}
 			}
@@ -591,13 +872,92 @@ namespace UnityGLTF
 			return id;
 		}
 
-		private static bool ContainsValidRenderer (GameObject gameObject)
+		private static bool ContainsValidRenderer(GameObject gameObject)
 		{
-			return (gameObject.GetComponent<MeshFilter>() != null && gameObject.GetComponent<MeshRenderer>() != null) 
-					|| (gameObject.GetComponent<SkinnedMeshRenderer>() != null);
+			if(!gameObject) return false;
+			var meshRenderer = gameObject.GetComponent<MeshRenderer>();
+			var meshFilter = gameObject.GetComponent<MeshFilter>();
+			var skinnedMeshRender = gameObject.GetComponent<SkinnedMeshRenderer>();
+			var materials = meshRenderer ? meshRenderer.sharedMaterials : skinnedMeshRender ? skinnedMeshRender.sharedMaterials : null;
+			var anyMaterialIsNonNull = false;
+			if(materials != null)
+				for (int i = 0; i < materials.Length; i++)
+					anyMaterialIsNonNull |= materials[i];
+			return (meshFilter && meshRenderer && meshRenderer.enabled) || (skinnedMeshRender && skinnedMeshRender.enabled) && anyMaterialIsNonNull;
 		}
+        private LightId ExportLight(Light unityLight)
+        {
+	        if (_root.ExtensionsUsed == null)
+	        {
+		        _root.ExtensionsUsed = new List<string>(new[] { "KHR_lights_punctual" });
+	        }
+	        else if (!_root.ExtensionsUsed.Contains("KHR_lights_punctual"))
+	        {
+		        _root.ExtensionsUsed.Add("KHR_lights_punctual");
+	        }
 
-		private void FilterPrimitives(Transform transform, out GameObject[] primitives, out GameObject[] nonPrimitives)
+            GLTFLight light;
+
+            if (unityLight.type == LightType.Spot)
+            {
+                light = new GLTFSpotLight() { innerConeAngle = unityLight.spotAngle / 2 * Mathf.Deg2Rad*0.8f, outerConeAngle = unityLight.spotAngle / 2 * Mathf.Deg2Rad };
+                //name
+                light.Name = unityLight.name;
+
+                light.type = unityLight.type.ToString().ToLower();
+                light.color = new GLTF.Math.Color(unityLight.color.r, unityLight.color.g, unityLight.color.b, 1);
+                light.range = unityLight.range;
+                light.intensity = unityLight.intensity;
+            }
+            else if (unityLight.type == LightType.Directional)
+            {
+                light = new GLTFDirectionalLight();
+                //name
+                light.Name = unityLight.name;
+
+                light.type = unityLight.type.ToString().ToLower();
+                light.color = new GLTF.Math.Color(unityLight.color.r, unityLight.color.g, unityLight.color.b, 1);
+                light.intensity = unityLight.intensity;
+            }
+            else if (unityLight.type == LightType.Point)
+            {
+                light = new GLTFPointLight();
+                //name
+                light.Name = unityLight.name;
+
+                light.type = unityLight.type.ToString().ToLower();
+                light.color = new GLTF.Math.Color(unityLight.color.r, unityLight.color.g, unityLight.color.b, 1);
+                light.range = unityLight.range;
+                light.intensity = unityLight.intensity;
+            }
+            else
+            {
+                light = new GLTFLight();
+                //name
+                light.Name = unityLight.name;
+
+                light.type = unityLight.type.ToString().ToLower();
+                light.color = new GLTF.Math.Color(unityLight.color.r, unityLight.color.g, unityLight.color.b, 1);
+            }
+
+            if (_root.Lights == null)
+            {
+                _root.Lights = new List<GLTFLight>();
+            }
+
+            var id = new LightId
+            {
+                Id = _root.Lights.Count,
+                Root = _root
+            };
+
+            //list of lightids should be in extensions object
+            _root.Lights.Add(light);
+
+            return id;
+        }
+
+        private void FilterPrimitives(Transform transform, out GameObject[] primitives, out GameObject[] nonPrimitives)
 		{
 			var childCount = transform.childCount;
 			var prims = new List<GameObject>(childCount + 1);
@@ -614,10 +974,12 @@ namespace UnityGLTF
 			for (var i = 0; i < childCount; i++)
 			{
 				var go = transform.GetChild(i).gameObject;
-				if (IsPrimitive(go))
-					prims.Add(go);
-				else
-					nonPrims.Add(go);
+
+				// This seems to be a performance optimization but results in transforms that are detected as "primtives" not being animated
+				// if (IsPrimitive(go))
+				// 	 prims.Add(go);
+				// else
+				nonPrims.Add(go);
 			}
 
 			primitives = prims.ToArray();
@@ -639,6 +1001,15 @@ namespace UnityGLTF
 				&& ContainsValidRenderer(gameObject);
 
 		}
+		private void ExportAnimation()
+		{
+
+			for (int i = 0; i < _animatedNodes.Count; ++i)
+			{
+				Transform t = _animatedNodes[i];
+				ExportAnimationFromNode(ref t);
+			}
+		}
 
 		private MeshId ExportMesh(string name, GameObject[] primitives)
 		{
@@ -651,14 +1022,14 @@ namespace UnityGLTF
 				if (smr != null)
 				{
 					key.Mesh = smr.sharedMesh;
-					key.Material = smr.sharedMaterial;
+					key.Materials = smr.sharedMaterials;
 				}
 				else
 				{
 					var filter = prim.GetComponent<MeshFilter>();
 					var renderer = prim.GetComponent<MeshRenderer>();
 					key.Mesh = filter.sharedMesh;
-					key.Material = renderer.sharedMaterial;
+					key.Materials = renderer.sharedMaterials;
 				}
 
 				MeshId tempMeshId;
@@ -696,15 +1067,19 @@ namespace UnityGLTF
 					mesh.Primitives.AddRange(meshPrimitives);
 				}
 			}
-			
+
 			var id = new MeshId
 			{
 				Id = _root.Meshes.Count,
 				Root = _root
 			};
-			_root.Meshes.Add(mesh);
+			if (mesh.Primitives.Count > 0)
+			{
+				_root.Meshes.Add(mesh);
+				return id;
+			}
 
-			return id;
+			return null;
 		}
 
 		// a mesh *might* decode to multiple prims if there are submeshes
@@ -724,100 +1099,190 @@ namespace UnityGLTF
 			}
 			if (meshObj == null)
 			{
-				Debug.LogError(string.Format("MeshFilter.sharedMesh on gameobject:{0} is missing , skipping", gameObject.name));
+				Debug.LogWarning(string.Format("MeshFilter.sharedMesh on gameobject:{0} is missing, skipping", gameObject.name), gameObject);
 				return null;
 			}
 
 			var renderer = gameObject.GetComponent<MeshRenderer>();
-			var materialsObj = renderer != null ? renderer.sharedMaterials : smr.sharedMaterials;
+			if (!renderer) smr = gameObject.GetComponent<SkinnedMeshRenderer>();
+
+			if(!renderer && !smr)
+			{
+				Debug.LogWarning("GameObject does have neither renderer nor SkinnedMeshRenderer! " + gameObject.name, gameObject);
+				return null;
+			}
+			var materialsObj = renderer ? renderer.sharedMaterials : smr.sharedMaterials;
 
 			var prims = new MeshPrimitive[meshObj.subMeshCount];
-
-			// don't export any more accessors if this mesh is already exported
-			MeshPrimitive[] primVariations;
-			if (_meshToPrims.TryGetValue(meshObj, out primVariations)
-				&& meshObj.subMeshCount == primVariations.Length)
+			List<MeshPrimitive> nonEmptyPrims = null;
+			var vertices = meshObj.vertices;
+			if (vertices.Length < 1)
 			{
-				for (var i = 0; i < primVariations.Length; i++)
-				{
-					prims[i] = new MeshPrimitive(primVariations[i], _root)
-					{
-						Material = ExportMaterial(materialsObj[i])
-					};
-				}
-
-				return prims;
+				Debug.LogWarning("MeshFilter does not contain any vertices, won't export: " + gameObject.name, gameObject);
+				return null;
 			}
 
-			AccessorId aPosition = null, aNormal = null, aTangent = null,
-				aTexcoord0 = null, aTexcoord1 = null, aColor0 = null;
-				
-			aPosition = ExportAccessor(SchemaExtensions.ConvertVector3CoordinateSpaceAndCopy(meshObj.vertices, SchemaExtensions.CoordinateSpaceConversionScale));
-
-			if (meshObj.normals.Length != 0)
-				aNormal = ExportAccessor(SchemaExtensions.ConvertVector3CoordinateSpaceAndCopy(meshObj.normals, SchemaExtensions.CoordinateSpaceConversionScale));
-
-			if (meshObj.tangents.Length != 0)
-				aTangent = ExportAccessor(SchemaExtensions.ConvertVector4CoordinateSpaceAndCopy(meshObj.tangents, SchemaExtensions.TangentSpaceConversionScale));
-
-			if (meshObj.uv.Length != 0)
-				aTexcoord0 = ExportAccessor(SchemaExtensions.FlipTexCoordArrayVAndCopy(meshObj.uv));
-
-			if (meshObj.uv2.Length != 0)
-				aTexcoord1 = ExportAccessor(SchemaExtensions.FlipTexCoordArrayVAndCopy(meshObj.uv2));
-
-			if (meshObj.colors.Length != 0)
-				aColor0 = ExportAccessor(meshObj.colors);
-
-			MaterialId lastMaterialId = null;
-
-			for (var submesh = 0; submesh < meshObj.subMeshCount; submesh++)
+			if (!_meshToPrims.ContainsKey(meshObj))
 			{
-				var primitive = new MeshPrimitive();
+				AccessorId aPosition = null, aNormal = null, aTangent = null, aTexcoord0 = null, aTexcoord1 = null, aColor0 = null;
 
-				var topology = meshObj.GetTopology(submesh);
-				var indices = meshObj.GetIndices(submesh);
-				if (topology == MeshTopology.Triangles) SchemaExtensions.FlipTriangleFaces(indices);
+				aPosition = ExportAccessor(SchemaExtensions.ConvertVector3CoordinateSpaceAndCopy(meshObj.vertices, SchemaExtensions.CoordinateSpaceConversionScale));
 
-				primitive.Mode = GetDrawMode(topology);
-				primitive.Indices = ExportAccessor(indices, true);
+				if (meshObj.normals.Length != 0)
+					aNormal = ExportAccessor(SchemaExtensions.ConvertVector3CoordinateSpaceAndCopy(meshObj.normals, SchemaExtensions.CoordinateSpaceConversionScale));
 
-				primitive.Attributes = new Dictionary<string, AccessorId>();
-				primitive.Attributes.Add(SemanticProperties.POSITION, aPosition);
+				if (meshObj.tangents.Length != 0)
+					aTangent = ExportAccessor(SchemaExtensions.ConvertVector4CoordinateSpaceAndCopy(meshObj.tangents, SchemaExtensions.TangentSpaceConversionScale));
 
-				if (aNormal != null)
-					primitive.Attributes.Add(SemanticProperties.NORMAL, aNormal);
-				if (aTangent != null)
-					primitive.Attributes.Add(SemanticProperties.TANGENT, aTangent);
-				if (aTexcoord0 != null)
-					primitive.Attributes.Add(SemanticProperties.TEXCOORD_0, aTexcoord0);
-				if (aTexcoord1 != null)
-					primitive.Attributes.Add(SemanticProperties.TEXCOORD_1, aTexcoord1);
-				if (aColor0 != null)
-					primitive.Attributes.Add(SemanticProperties.COLOR_0, aColor0);
+				if (meshObj.uv.Length != 0)
+					aTexcoord0 = ExportAccessor(SchemaExtensions.FlipTexCoordArrayVAndCopy(meshObj.uv));
 
-				if (submesh < materialsObj.Length)
+				if (meshObj.uv2.Length != 0)
+					aTexcoord1 = ExportAccessor(SchemaExtensions.FlipTexCoordArrayVAndCopy(meshObj.uv2));
+
+				if (meshObj.colors.Length != 0)
+					aColor0 = ExportAccessor(QualitySettings.activeColorSpace == ColorSpace.Linear ? meshObj.colors : meshObj.colors.ToLinear());
+
+				_meshToPrims.Add(meshObj, new MeshAccessors()
 				{
-					primitive.Material = ExportMaterial(materialsObj[submesh]);
-					lastMaterialId = primitive.Material;
-				}
-				else
-				{
-					primitive.Material = lastMaterialId;
-				}
-
-				ExportBlendShapes(smr, meshObj, primitive, mesh);
-
-				prims[submesh] = primitive;
+					aPosition = aPosition,
+					aNormal = aNormal,
+					aTangent = aTangent,
+					aTexcoord0 = aTexcoord0,
+					aTexcoord1 = aTexcoord1,
+					aColor0 = aColor0,
+					subMeshPrimitives = new Dictionary<int, MeshPrimitive>()
+				});
 			}
 
-			_meshToPrims[meshObj] = prims;
+			var accessors = _meshToPrims[meshObj];
+
+			// walk submeshes and export the ones with non-null meshes
+			for (int submesh = 0; submesh < meshObj.subMeshCount; submesh++)
+			{
+				if (submesh >= materialsObj.Length) continue;
+				if (!materialsObj[submesh]) continue;
+
+				if (!accessors.subMeshPrimitives.ContainsKey(submesh))
+				{
+					var primitive = new MeshPrimitive();
+
+					var topology = meshObj.GetTopology(submesh);
+					var indices = meshObj.GetIndices(submesh);
+					if (topology == MeshTopology.Triangles) SchemaExtensions.FlipTriangleFaces(indices);
+
+					primitive.Mode = GetDrawMode(topology);
+					primitive.Indices = ExportAccessor(indices, true);
+
+					primitive.Attributes = new Dictionary<string, AccessorId>();
+					primitive.Attributes.Add(SemanticProperties.POSITION, accessors.aPosition);
+
+					if (accessors.aNormal != null)
+						primitive.Attributes.Add(SemanticProperties.NORMAL, accessors.aNormal);
+					if (accessors.aTangent != null)
+						primitive.Attributes.Add(SemanticProperties.TANGENT, accessors.aTangent);
+					if (accessors.aTexcoord0 != null)
+						primitive.Attributes.Add(SemanticProperties.TEXCOORD_0, accessors.aTexcoord0);
+					if (accessors.aTexcoord1 != null)
+						primitive.Attributes.Add(SemanticProperties.TEXCOORD_1, accessors.aTexcoord1);
+					if (accessors.aColor0 != null)
+						primitive.Attributes.Add(SemanticProperties.COLOR_0, accessors.aColor0);
+
+					primitive.Material = null;
+
+					ExportBlendShapes(smr, meshObj, submesh, primitive, mesh);
+
+					accessors.subMeshPrimitives.Add(submesh, primitive);
+				}
+
+				var submeshPrimitive = accessors.subMeshPrimitives[submesh];
+				prims[submesh] = new MeshPrimitive(submeshPrimitive, _root)
+				{
+					Material = ExportMaterial(materialsObj[submesh]),
+				};
+			}
+
+			// // don't export any more accessors if this mesh is already exported
+			// MeshPrimitive[] primVariations;
+			// if (_meshToPrims.TryGetValue(meshObj, out primVariations)
+			// 	&& meshObj.subMeshCount == primVariations.Length)
+			// {
+			// 	for (var i = 0; i < Mathf.Min(primVariations.Length, materialsObj.Length); i++)
+			// 	{
+			// 		prims[i] = new MeshPrimitive(primVariations[i], _root)
+			// 		{
+			// 			Material = ExportMaterial(materialsObj[i])
+			// 		};
+			// 	}
+			//
+			// 	nonEmptyPrims = new List<MeshPrimitive>(prims);
+			// 	nonEmptyPrims.RemoveAll(EmptyPrimitive);
+			// 	prims = nonEmptyPrims.ToArray();
+			// 	return prims;
+			// }
+			//
+			// MaterialId lastMaterialId = null;
+			//
+			// for (var submesh = 0; submesh < meshObj.subMeshCount; submesh++)
+			// {
+			// 	var primitive = new MeshPrimitive();
+			//
+			// 	var topology = meshObj.GetTopology(submesh);
+			// 	var indices = meshObj.GetIndices(submesh);
+			// 	if (topology == MeshTopology.Triangles) SchemaExtensions.FlipTriangleFaces(indices);
+			//
+			// 	primitive.Mode = GetDrawMode(topology);
+			// 	primitive.Indices = ExportAccessor(indices, true);
+			//
+			// 	primitive.Attributes = new Dictionary<string, AccessorId>();
+			// 	primitive.Attributes.Add(SemanticProperties.POSITION, aPosition);
+			//
+			// 	if (aNormal != null)
+			// 		primitive.Attributes.Add(SemanticProperties.NORMAL, aNormal);
+			// 	if (aTangent != null)
+			// 		primitive.Attributes.Add(SemanticProperties.TANGENT, aTangent);
+			// 	if (aTexcoord0 != null)
+			// 		primitive.Attributes.Add(SemanticProperties.TEXCOORD_0, aTexcoord0);
+			// 	if (aTexcoord1 != null)
+			// 		primitive.Attributes.Add(SemanticProperties.TEXCOORD_1, aTexcoord1);
+			// 	if (aColor0 != null)
+			// 		primitive.Attributes.Add(SemanticProperties.COLOR_0, aColor0);
+			//
+			// 	if (submesh < materialsObj.Length)
+			// 	{
+			// 		primitive.Material = ExportMaterial(materialsObj[submesh]);
+			// 		lastMaterialId = primitive.Material;
+			// 	}
+			// 	else
+			// 	{
+			// 		primitive.Material = lastMaterialId;
+			// 	}
+			//
+			// 	ExportBlendShapes(smr, meshObj, primitive, mesh);
+			//
+			// 	prims[submesh] = primitive;
+			// }
+
+            //remove any prims that have empty triangles
+            nonEmptyPrims = new List<MeshPrimitive>(prims);
+            nonEmptyPrims.RemoveAll(EmptyPrimitive);
+            prims = nonEmptyPrims.ToArray();
 
 			return prims;
 		}
 
-		private MaterialId ExportMaterial(Material materialObj)
+        private static bool EmptyPrimitive(MeshPrimitive prim)
+        {
+            if (prim == null || prim.Attributes == null)
+            {
+                return true;
+            }
+            return false;
+        }
+
+        private MaterialId ExportMaterial(Material materialObj)
 		{
+            //TODO if material is null
 			MaterialId id = GetMaterialId(_root, materialObj);
 			if (id != null)
 			{
@@ -826,19 +1291,36 @@ namespace UnityGLTF
 
 			var material = new GLTFMaterial();
 
+            if (materialObj == null)
+            {
+                if (ExportNames)
+                {
+                    material.Name = "null";
+                }
+                _materials.Add(materialObj);
+                material.PbrMetallicRoughness = new PbrMetallicRoughness() { MetallicFactor = 0, RoughnessFactor = 1.0f };
+
+                id = new MaterialId
+                {
+                    Id = _root.Materials.Count,
+                    Root = _root
+                };
+                _root.Materials.Add(material);
+                return id;
+            }
+
 			if (ExportNames)
 			{
 				material.Name = materialObj.name;
 			}
 
-			if (materialObj.HasProperty("_Cutoff"))
-			{
-				material.AlphaCutoff = materialObj.GetFloat("_Cutoff");
-			}
-
 			switch (materialObj.GetTag("RenderType", false, ""))
 			{
 				case "TransparentCutout":
+					if (materialObj.HasProperty("_Cutoff"))
+					{
+						material.AlphaCutoff = materialObj.GetFloat("_Cutoff");
+					}
 					material.AlphaMode = AlphaMode.MASK;
 					break;
 				case "Transparent":
@@ -853,10 +1335,11 @@ namespace UnityGLTF
 				materialObj.GetInt("_Cull") == (float)CullMode.Off;
 
 			if(materialObj.IsKeywordEnabled("_EMISSION"))
-			{ 
+			{
 				if (materialObj.HasProperty("_EmissionColor"))
 				{
-					material.EmissiveFactor = materialObj.GetColor("_EmissionColor").ToNumericsColorRaw();
+					var c = materialObj.GetColor("_EmissionColor");
+					material.EmissiveFactor = c.ToNumericsColorLinear();
 				}
 
 				if (materialObj.HasProperty("_EmissionMap"))
@@ -879,7 +1362,7 @@ namespace UnityGLTF
 					}
 				}
 			}
-			if (materialObj.HasProperty("_BumpMap") && materialObj.IsKeywordEnabled("_NORMALMAP"))
+			if (materialObj.HasProperty("_BumpMap") && (materialObj.IsKeywordEnabled("_NORMALMAP") || materialObj.IsKeywordEnabled("_BUMPMAP")))
 			{
 				var normalTex = materialObj.GetTexture("_BumpMap");
 
@@ -913,15 +1396,63 @@ namespace UnityGLTF
 					}
 				}
 			}
+			if( IsUnlit(materialObj)){
 
-			if (IsPBRMetallicRoughness(materialObj))
+				ExportUnlit( material, materialObj );
+			}
+			else if (IsPBRMetallicRoughness(materialObj))
 			{
 				material.PbrMetallicRoughness = ExportPBRMetallicRoughness(materialObj);
+			}
+			else if (IsPBRSpecularGlossiness(materialObj))
+			{
+				ExportPBRSpecularGlossiness(material, materialObj);
 			}
 			else if (IsCommonConstant(materialObj))
 			{
 				material.CommonConstant = ExportCommonConstant(materialObj);
 			}
+			else if (materialObj.HasProperty("_BaseMap"))
+			{
+				var mainTex = materialObj.GetTexture("_BaseMap");
+				material.PbrMetallicRoughness = new PbrMetallicRoughness()
+				{
+					BaseColorFactor = (materialObj.HasProperty("_BaseColor")
+						? materialObj.GetColor("_BaseColor")
+						: Color.white).ToNumericsColorLinear(),
+					BaseColorTexture = mainTex ? ExportTextureInfo(mainTex, TextureMapType.Main) : null
+				};
+			}
+			else if (materialObj.HasProperty("_ColorTexture"))
+			{
+				var mainTex = materialObj.GetTexture("_ColorTexture");
+				material.PbrMetallicRoughness = new PbrMetallicRoughness()
+				{
+					BaseColorFactor = (materialObj.HasProperty("_BaseColor")
+						? materialObj.GetColor("_BaseColor")
+						: Color.white).ToNumericsColorLinear(),
+					BaseColorTexture = mainTex ? ExportTextureInfo(mainTex, TextureMapType.Main) : null
+				};
+			}
+            else if (materialObj.HasProperty("_MainTex")) //else export main texture
+            {
+                var mainTex = materialObj.GetTexture("_MainTex");
+
+                if (mainTex != null)
+                {
+                    material.PbrMetallicRoughness = new PbrMetallicRoughness() { MetallicFactor = 0, RoughnessFactor = 1.0f };
+                    material.PbrMetallicRoughness.BaseColorTexture = ExportTextureInfo(mainTex, TextureMapType.Main);
+                    ExportTextureTransform(material.PbrMetallicRoughness.BaseColorTexture, materialObj, "_MainTex");
+                }
+                if (materialObj.HasProperty("_TintColor")) //particles use _TintColor instead of _Color
+                {
+                    if (material.PbrMetallicRoughness == null)
+                        material.PbrMetallicRoughness = new PbrMetallicRoughness() { MetallicFactor = 0, RoughnessFactor = 1.0f };
+
+                    material.PbrMetallicRoughness.BaseColorFactor = materialObj.GetColor("_TintColor").ToNumericsColorLinear();
+                }
+                material.DoubleSided = true;
+            }
 
 			_materials.Add(materialObj);
 
@@ -938,8 +1469,16 @@ namespace UnityGLTF
 		// Blend Shapes / Morph Targets
 		// Adopted from Gary Hsu (bghgary)
 		// https://github.com/bghgary/glTF-Tools-for-Unity/blob/master/UnityProject/Assets/Gltf/Editor/Exporter.cs
-		private void ExportBlendShapes(SkinnedMeshRenderer smr, Mesh meshObj, MeshPrimitive primitive, GLTFMesh mesh)
+		private void ExportBlendShapes(SkinnedMeshRenderer smr, Mesh meshObj, int submeshIndex, MeshPrimitive primitive, GLTFMesh mesh)
 		{
+			if (_meshToBlendShapeAccessors.TryGetValue(meshObj, out var data))
+			{
+				mesh.Weights = data.weights;
+				primitive.Targets = data.targets;
+				primitive.TargetNames = data.targetNames;
+				return;
+			}
+
 			if (smr != null && meshObj.blendShapeCount > 0)
 			{
 				List<Dictionary<string, AccessorId>> targets = new List<Dictionary<string, AccessorId>>(meshObj.blendShapeCount);
@@ -948,7 +1487,6 @@ namespace UnityGLTF
 
 				for (int blendShapeIndex = 0; blendShapeIndex < meshObj.blendShapeCount; blendShapeIndex++)
 				{
-
 					targetNames.Add(meshObj.GetBlendShapeName(blendShapeIndex));
 					// As described above, a blend shape can have multiple frames.  Given that glTF only supports a single frame
 					// per blend shape, we'll always use the final frame (the one that would be for when 100% weight is applied).
@@ -982,12 +1520,30 @@ namespace UnityGLTF
 				mesh.Weights = weights;
 				primitive.Targets = targets;
 				primitive.TargetNames = targetNames;
+
+				// cache the exported data; we can re-use it between all submeshes of a mesh.
+				_meshToBlendShapeAccessors.Add(meshObj, new BlendShapeAccessors()
+				{
+					targets = targets,
+					weights = weights,
+					targetNames = targetNames
+				});
 			}
 		}
 
 		private bool IsPBRMetallicRoughness(Material material)
 		{
-			return material.HasProperty("_Metallic") && material.HasProperty("_MetallicGlossMap");
+			return material.HasProperty("_Metallic") && (material.HasProperty("_MetallicGlossMap") || material.HasProperty("_Glossiness"));
+		}
+
+		private bool IsUnlit(Material material)
+		{
+			return material.shader.name.ToLowerInvariant().Contains("unlit");
+		}
+
+		private bool IsPBRSpecularGlossiness(Material material)
+		{
+			return material.HasProperty("_SpecColor") && material.HasProperty("_SpecGlossMap");
 		}
 
 		private bool IsCommonConstant(Material material)
@@ -1002,7 +1558,14 @@ namespace UnityGLTF
 			Vector2 offset = mat.GetTextureOffset(texName);
 			Vector2 scale = mat.GetTextureScale(texName);
 
-			if (offset == Vector2.zero && scale == Vector2.one) return;
+			if (offset == Vector2.zero && scale == Vector2.one)
+			{
+				// difficult choice here: some shaders might support texture transform per-texture, others use the main transform.
+				offset = mat.mainTextureOffset;
+				scale = mat.mainTextureScale;
+				// offset.x = 1 - offset.x;
+				// return;
+			}
 
 			if (_root.ExtensionsUsed == null)
 			{
@@ -1076,23 +1639,41 @@ namespace UnityGLTF
 
 		private PbrMetallicRoughness ExportPBRMetallicRoughness(Material material)
 		{
-			var pbr = new PbrMetallicRoughness();
+			var pbr = new PbrMetallicRoughness() { MetallicFactor = 0, RoughnessFactor = 1.0f };
 
-			if (material.HasProperty("_Color"))
+			if (material.HasProperty("_BaseColor"))
 			{
-				pbr.BaseColorFactor = material.GetColor("_Color").ToNumericsColorRaw();
+				pbr.BaseColorFactor = material.GetColor("_BaseColor").ToNumericsColorLinear();
+			}
+			else if (material.HasProperty("_Color"))
+			{
+				pbr.BaseColorFactor = material.GetColor("_Color").ToNumericsColorLinear();
 			}
 
-			if (material.HasProperty("_MainTex"))
-			{
-				var mainTex = material.GetTexture("_MainTex");
+            if (material.HasProperty("_TintColor")) //particles use _TintColor instead of _Color
+            {
+                float white = 1;
+                if (material.HasProperty("_Color"))
+                {
+                    var c = material.GetColor("_Color");
+                    white = (c.r + c.g + c.b) / 3.0f; //multiply alpha by overall whiteness of TintColor
+                }
 
-				if (mainTex != null)
+                pbr.BaseColorFactor = (material.GetColor("_TintColor") * white).ToNumericsColorLinear() ;
+            }
+
+            if (material.HasProperty("_MainTex") || material.HasProperty("_BaseMap")) //TODO if additive particle, render black into alpha
+			{
+				// TODO use private Material.GetFirstPropertyNameIdByAttribute here, supported from 2020.1+
+				var mainTexPropertyName = material.HasProperty("_BaseMap") ? "_BaseMap" : "_MainTex";
+				var mainTex = material.GetTexture(mainTexPropertyName);
+
+				if (mainTex)
 				{
 					if(mainTex is Texture2D)
 					{
 						pbr.BaseColorTexture = ExportTextureInfo(mainTex, TextureMapType.Main);
-						ExportTextureTransform(pbr.BaseColorTexture, material, "_MainTex");
+						ExportTextureTransform(pbr.BaseColorTexture, material, mainTexPropertyName);
 					}
 					else
 					{
@@ -1104,13 +1685,16 @@ namespace UnityGLTF
 			if (material.HasProperty("_Metallic"))
 			{
 				var metallicGlossMap = material.GetTexture("_MetallicGlossMap");
-				pbr.MetallicFactor = (metallicGlossMap != null) ? 1.0 : material.GetFloat("_Metallic");
+				pbr.MetallicFactor = material.GetFloat("_Metallic");
 			}
 
-			if (material.HasProperty("_Glossiness"))
+			if (material.HasProperty("_Glossiness") || material.HasProperty("_Smoothness"))
 			{
+				var smoothnessPropertyName = material.HasProperty("_Smoothness") ? "_Smoothness" : "_Glossiness";
 				var metallicGlossMap = material.GetTexture("_MetallicGlossMap");
-				pbr.RoughnessFactor = (metallicGlossMap != null) ? 1.0 : 1.0 - material.GetFloat("_Glossiness");
+				// float gms = material.GetFloat("_GlossMapScale");
+				float smoothness = material.GetFloat(smoothnessPropertyName);
+				pbr.RoughnessFactor = (metallicGlossMap && material.HasProperty("_GlossMapScale")) ? material.GetFloat("_GlossMapScale") : 1.0 - smoothness;
 			}
 
 			if (material.HasProperty("_MetallicGlossMap"))
@@ -1130,25 +1714,146 @@ namespace UnityGLTF
 					}
 				}
 			}
-			else if (material.HasProperty("_SpecGlossMap"))
-			{
-				var mgTex = material.GetTexture("_SpecGlossMap");
 
-				if (mgTex != null)
+			return pbr;
+		}
+
+		private void ExportUnlit(GLTFMaterial def, Material material){
+
+			const string extname = KHR_MaterialsUnlitExtensionFactory.EXTENSION_NAME;
+			DeclareExtensionUsage( extname, true );
+			def.AddExtension( extname, new KHR_MaterialsUnlitExtension());
+
+			var pbr = new PbrMetallicRoughness();
+
+			if (material.HasProperty("_Color"))
+			{
+				pbr.BaseColorFactor = material.GetColor("_Color").ToNumericsColorLinear();
+			}
+
+			if (material.HasProperty("_MainTex"))
+			{
+				var mainTex = material.GetTexture("_MainTex");
+				if (mainTex != null)
 				{
-					if(mgTex is Texture2D)
+					if(mainTex is Texture2D)
 					{
-						pbr.MetallicRoughnessTexture = ExportTextureInfo(mgTex, TextureMapType.SpecGloss);
-						ExportTextureTransform(pbr.MetallicRoughnessTexture, material, "_SpecGlossMap");
+						pbr.BaseColorTexture = ExportTextureInfo(mainTex, TextureMapType.Main);
+						ExportTextureTransform(pbr.BaseColorTexture, material, "_MainTex");
 					}
 					else
 					{
-						Debug.LogErrorFormat("Can't export a {0} metallic roughness texture in material {1}", mgTex.GetType(), material.name);
+						Debug.LogErrorFormat("Can't export a {0} base texture in material {1}", mainTex.GetType(), material.name);
 					}
 				}
 			}
 
-			return pbr;
+			def.PbrMetallicRoughness = pbr;
+
+		}
+
+
+		private void ExportPBRSpecularGlossiness(GLTFMaterial material, Material materialObj)
+		{
+			if (_root.ExtensionsUsed == null)
+			{
+				_root.ExtensionsUsed = new List<string>(new[] { "KHR_materials_pbrSpecularGlossiness" });
+			}
+			else if (!_root.ExtensionsUsed.Contains("KHR_materials_pbrSpecularGlossiness"))
+			{
+				_root.ExtensionsUsed.Add("KHR_materials_pbrSpecularGlossiness");
+			}
+
+			if (RequireExtensions)
+			{
+				if (_root.ExtensionsRequired == null)
+				{
+					_root.ExtensionsRequired = new List<string>(new[] { "KHR_materials_pbrSpecularGlossiness" });
+				}
+				else if (!_root.ExtensionsRequired.Contains("KHR_materials_pbrSpecularGlossiness"))
+				{
+					_root.ExtensionsRequired.Add("KHR_materials_pbrSpecularGlossiness");
+				}
+			}
+
+			if (material.Extensions == null)
+			{
+				material.Extensions = new Dictionary<string, IExtension>();
+			}
+
+			GLTF.Math.Color diffuseFactor = KHR_materials_pbrSpecularGlossinessExtension.DIFFUSE_FACTOR_DEFAULT;
+			TextureInfo diffuseTexture = KHR_materials_pbrSpecularGlossinessExtension.DIFFUSE_TEXTURE_DEFAULT;
+			GLTF.Math.Vector3 specularFactor = KHR_materials_pbrSpecularGlossinessExtension.SPEC_FACTOR_DEFAULT;
+			double glossinessFactor = KHR_materials_pbrSpecularGlossinessExtension.GLOSS_FACTOR_DEFAULT;
+			TextureInfo specularGlossinessTexture = KHR_materials_pbrSpecularGlossinessExtension.SPECULAR_GLOSSINESS_TEXTURE_DEFAULT;
+
+			if (materialObj.HasProperty("_Color"))
+			{
+				diffuseFactor = materialObj.GetColor("_Color").ToNumericsColorLinear();
+			}
+
+			if (materialObj.HasProperty("_MainTex"))
+			{
+				var mainTex = materialObj.GetTexture("_MainTex");
+
+				if (mainTex != null)
+				{
+					if (mainTex is Texture2D)
+					{
+						diffuseTexture = ExportTextureInfo(mainTex, TextureMapType.Main);
+						ExportTextureTransform(diffuseTexture, materialObj, "_MainTex");
+					}
+					else
+					{
+						Debug.LogErrorFormat("Can't export a {0} diffuse texture in material {1}", mainTex.GetType(), materialObj.name);
+					}
+				}
+			}
+
+			if (materialObj.HasProperty("_SpecColor"))
+			{
+				var specGlossMap = materialObj.GetTexture("_SpecGlossMap");
+				if (specGlossMap == null)
+				{
+					var specColor = materialObj.GetColor("_SpecColor").ToNumericsColorLinear();
+					specularFactor = new GLTF.Math.Vector3(specColor.R, specColor.G, specColor.B);
+				}
+			}
+
+			if (materialObj.HasProperty("_Glossiness"))
+			{
+				var specGlossMap = materialObj.GetTexture("_SpecGlossMap");
+				if (specGlossMap == null)
+				{
+					glossinessFactor = materialObj.GetFloat("_Glossiness");
+				}
+			}
+
+			if (materialObj.HasProperty("_SpecGlossMap"))
+			{
+				var mgTex = materialObj.GetTexture("_SpecGlossMap");
+
+				if (mgTex != null)
+				{
+					if (mgTex is Texture2D)
+					{
+						specularGlossinessTexture = ExportTextureInfo(mgTex, TextureMapType.SpecGloss);
+						ExportTextureTransform(specularGlossinessTexture, materialObj, "_SpecGlossMap");
+					}
+					else
+					{
+						Debug.LogErrorFormat("Can't export a {0} specular glossiness texture in material {1}", mgTex.GetType(), materialObj.name);
+					}
+				}
+			}
+
+			material.Extensions[KHR_materials_pbrSpecularGlossinessExtensionFactory.EXTENSION_NAME] = new KHR_materials_pbrSpecularGlossinessExtension(
+				diffuseFactor,
+				diffuseTexture,
+				specularFactor,
+				glossinessFactor,
+				specularGlossinessTexture
+			);
 		}
 
 		private MaterialCommonConstant ExportCommonConstant(Material materialObj)
@@ -1232,13 +1937,13 @@ namespace UnityGLTF
 			}
 
 			if (_shouldUseInternalBufferForImages)
-		    	{
+		    {
 				texture.Source = ExportImageInternalBuffer(textureObj, textureMapType);
-		    	}
-		    	else
-		    	{
+		    }
+		    else
+		    {
 				texture.Source = ExportImage(textureObj, textureMapType);
-		    	}
+		    }
 			texture.Sampler = ExportSampler(textureObj);
 
 			_textures.Add(textureObj);
@@ -1252,6 +1957,36 @@ namespace UnityGLTF
 			_root.Textures.Add(texture);
 
 			return id;
+		}
+
+		private string GetImageOutputPath(Texture texture)
+		{
+			var imagePath = _exportOptions.TexturePathRetriever(texture);
+			if (string.IsNullOrEmpty(imagePath))
+			{
+				imagePath = texture.name;
+			}
+
+			var filenamePath = imagePath;
+			var isGltfCompatible = IsPng(imagePath) || IsJpeg(imagePath);
+
+			if (ExportFullPath)
+			{
+				if (!isGltfCompatible)
+				{
+					filenamePath = Path.ChangeExtension(imagePath, ".png");
+				}
+			}
+			else
+			{
+				filenamePath = Path.GetFileName(filenamePath);
+				if (!isGltfCompatible)
+				{
+					filenamePath = Path.ChangeExtension(texture.name, ".png");
+				}
+			}
+
+			return filenamePath;
 		}
 
 		private ImageId ExportImage(Texture texture, TextureMapType texturMapType)
@@ -1269,23 +2004,37 @@ namespace UnityGLTF
 				image.Name = texture.name;
 			}
 
-			_imageInfos.Add(new ImageInfo
+            if (texture.GetType() == typeof(RenderTexture))
+            {
+                Texture2D tempTexture = new Texture2D(texture.width, texture.height);
+                tempTexture.name = texture.name;
+
+                RenderTexture.active = texture as RenderTexture;
+                tempTexture.ReadPixels(new Rect(0, 0, texture.width, texture.height), 0, 0);
+                tempTexture.Apply();
+                texture = tempTexture;
+            }
+#if UNITY_2017_1_OR_NEWER
+            if (texture.GetType() == typeof(CustomRenderTexture))
+            {
+                Texture2D tempTexture = new Texture2D(texture.width, texture.height);
+                tempTexture.name = texture.name;
+
+                RenderTexture.active = texture as CustomRenderTexture;
+                tempTexture.ReadPixels(new Rect(0, 0, texture.width, texture.height), 0, 0);
+                tempTexture.Apply();
+                texture = tempTexture;
+            }
+#endif
+
+            _imageInfos.Add(new ImageInfo
 			{
 				texture = texture as Texture2D,
 				textureMapType = texturMapType
 			});
 
-			var imagePath = _exportOptions.TexturePathRetriever(texture);
-			if (string.IsNullOrEmpty(imagePath))
-			{
-				imagePath = texture.name;
-			}
+			var filenamePath = GetImageOutputPath(texture);
 
-			var filenamePath = Path.ChangeExtension(imagePath, ".png");
-			if (!ExportFullPath)
-			{
-				filenamePath = Path.ChangeExtension(texture.name, ".png");
-			}
 			image.Uri = Uri.EscapeUriString(filenamePath);
 
 			id = new ImageId
@@ -1299,66 +2048,122 @@ namespace UnityGLTF
 			return id;
 		}
 
+		bool TryGetTextureDataFromDisk(Texture texture, out string path, out byte[] data)
+		{
+#if UNITY_EDITOR
+			if (Application.isEditor && UnityEditor.AssetDatabase.Contains(texture))
+			{
+				path = UnityEditor.AssetDatabase.GetAssetPath(texture);
+				if (File.Exists(path))
+				{
+					data = File.ReadAllBytes(path);
+					return true;
+				}
+			}
+#endif
+			path = null;
+			data = null;
+			return false;
+		}
+
+		bool IsPng(string filename)
+		{
+			return Path.GetExtension(filename).EndsWith("png", StringComparison.InvariantCultureIgnoreCase);
+		}
+
+		bool IsJpeg(string filename)
+		{
+			return Path.GetExtension(filename).EndsWith("jpg", StringComparison.InvariantCultureIgnoreCase) || Path.GetExtension(filename).EndsWith("jpeg", StringComparison.InvariantCultureIgnoreCase);
+		}
+
 		private ImageId ExportImageInternalBuffer(UnityEngine.Texture texture, TextureMapType texturMapType)
 		{
-
 		    if (texture == null)
 		    {
-			throw new Exception("texture can not be NULL.");
+				throw new Exception("texture can not be NULL.");
 		    }
 
 		    var image = new GLTFImage();
-		    image.MimeType = "image/png";
+			AlignToBoundary(_bufferWriter.BaseStream, 0x00);
+			uint byteOffset = CalculateAlignment((uint)_bufferWriter.BaseStream.Position, 4);
 
-		    var byteOffset = _bufferWriter.BaseStream.Position;
+			bool wasAbleToExportFromDisk = false;
 
-		    {//
-			var destRenderTexture = RenderTexture.GetTemporary(texture.width, texture.height, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
-			GL.sRGBWrite = true;
-			switch (texturMapType)
+			if(TryExportTexturesFromDisk && TryGetTextureDataFromDisk(texture, out string path, out byte[] imageBytes))
 			{
-			    case TextureMapType.MetallicGloss:
-				Graphics.Blit(texture, destRenderTexture, _metalGlossChannelSwapMaterial);
-				break;
-			    case TextureMapType.Bump:
-				Graphics.Blit(texture, destRenderTexture, _normalChannelMaterial);
-				break;
-			    default:
-				Graphics.Blit(texture, destRenderTexture);
-				break;
+				if(IsPng(path))
+				{
+					image.MimeType = "image/png";
+					_bufferWriter.Write(imageBytes);
+					wasAbleToExportFromDisk = true;
+				}
+				else if(IsJpeg(path))
+				{
+					image.MimeType = "image/jpeg";
+					_bufferWriter.Write(imageBytes);
+					wasAbleToExportFromDisk = true;
+				}
+				else
+				{
+					Debug.Log("Texture can't be exported from disk: " + path + ". Only PNG & JPEG are supported. The texture will be re-encoded as PNG.", texture);
+				}
 			}
 
-			var exportTexture = new Texture2D(texture.width, texture.height, TextureFormat.ARGB32, false);
-			exportTexture.ReadPixels(new Rect(0, 0, destRenderTexture.width, destRenderTexture.height), 0, 0);
-			exportTexture.Apply();
 
-			var pngImageData = exportTexture.EncodeToPNG();
-			_bufferWriter.Write(pngImageData);
+			if(!wasAbleToExportFromDisk)
+		    {
+				image.MimeType = "image/png";
 
-			RenderTexture.ReleaseTemporary(destRenderTexture);
+				// TODO we could make sure texture size is power-of-two here
 
-			GL.sRGBWrite = false;
-			if (Application.isEditor)
-			{
-			    UnityEngine.Object.DestroyImmediate(exportTexture);
-			}
-			else
-			{
-			    UnityEngine.Object.Destroy(exportTexture);
-			}
+				var destRenderTexture = RenderTexture.GetTemporary(texture.width, texture.height, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+				GL.sRGBWrite = true;
+				switch (texturMapType)
+				{
+					case TextureMapType.MetallicGloss:
+					Graphics.Blit(texture, destRenderTexture, _metalGlossChannelSwapMaterial);
+					break;
+					case TextureMapType.Bump:
+					Graphics.Blit(texture, destRenderTexture, _normalChannelMaterial);
+					break;
+					default:
+					Graphics.Blit(texture, destRenderTexture);
+					break;
+				}
+
+				var exportTexture = new Texture2D(texture.width, texture.height, TextureFormat.ARGB32, false);
+				exportTexture.ReadPixels(new Rect(0, 0, destRenderTexture.width, destRenderTexture.height), 0, 0);
+				exportTexture.Apply();
+
+				var pngImageData = exportTexture.EncodeToPNG();
+				_bufferWriter.Write(pngImageData);
+
+				RenderTexture.ReleaseTemporary(destRenderTexture);
+
+				GL.sRGBWrite = false;
+				if (Application.isEditor)
+				{
+					UnityEngine.Object.DestroyImmediate(exportTexture);
+				}
+				else
+				{
+					UnityEngine.Object.Destroy(exportTexture);
+				}
 		    }
 
-		    var byteLength = _bufferWriter.BaseStream.Position - byteOffset;
+			// Check for potential warnings in GLTF validation
+			if (!Mathf.IsPowerOfTwo(texture.width) || !Mathf.IsPowerOfTwo(texture.height))
+			{
+				Debug.LogWarning("Validation Warning: " + "Image has non-power-of-two dimensions: " + texture.width + "x" + texture.height + ".", texture);
+			}
 
-		    byteLength = AppendToBufferMultiplyOf4(byteOffset, byteLength);
-
-		    image.BufferView = ExportBufferView((uint)byteOffset, (uint)byteLength);
-
+			uint byteLength = CalculateAlignment((uint)_bufferWriter.BaseStream.Position - byteOffset, 4);
+			image.BufferView = ExportBufferView((uint)byteOffset, (uint)byteLength);
 
 		    var id = new ImageId
 		    {
-			Id = _root.Images.Count,
-			Root = _root
+				Id = _root.Images.Count,
+				Root = _root
 		    };
 		    _root.Images.Add(image);
 
@@ -1458,7 +2263,13 @@ namespace UnityGLTF
 			AlignToBoundary(_bufferWriter.BaseStream, 0x00);
 			uint byteOffset = CalculateAlignment((uint)_bufferWriter.BaseStream.Position, 4);
 
-			if (max <= byte.MaxValue && min >= byte.MinValue)
+			// From the spec:
+			// Values of the index accessor must not include the maximum value for the given component type,
+			// which triggers primitive restart in several graphics APIs and would require client implementations to rebuild the index buffer.
+			// Primitive restart values are disallowed and all index values must refer to actual vertices.
+			int maxAllowedValue = isIndices ? max + 1 : max;
+
+			if (maxAllowedValue <= byte.MaxValue && min >= byte.MinValue)
 			{
 				accessor.ComponentType = GLTFComponentType.UnsignedByte;
 
@@ -1467,7 +2278,7 @@ namespace UnityGLTF
 					_bufferWriter.Write((byte)v);
 				}
 			}
-			else if (max <= sbyte.MaxValue && min >= sbyte.MinValue && !isIndices)
+			else if (maxAllowedValue <= sbyte.MaxValue && min >= sbyte.MinValue && !isIndices)
 			{
 				accessor.ComponentType = GLTFComponentType.Byte;
 
@@ -1476,7 +2287,7 @@ namespace UnityGLTF
 					_bufferWriter.Write((sbyte)v);
 				}
 			}
-			else if (max <= short.MaxValue && min >= short.MinValue && !isIndices)
+			else if (maxAllowedValue <= short.MaxValue && min >= short.MinValue && !isIndices)
 			{
 				accessor.ComponentType = GLTFComponentType.Short;
 
@@ -1485,7 +2296,7 @@ namespace UnityGLTF
 					_bufferWriter.Write((short)v);
 				}
 			}
-			else if (max <= ushort.MaxValue && min >= ushort.MinValue)
+			else if (maxAllowedValue <= ushort.MaxValue && min >= ushort.MinValue)
 			{
 				accessor.ComponentType = GLTFComponentType.UnsignedShort;
 
@@ -1494,7 +2305,7 @@ namespace UnityGLTF
 					_bufferWriter.Write((ushort)v);
 				}
 			}
-			else if (min >= uint.MinValue)
+			else if (maxAllowedValue >= uint.MinValue)
 			{
 				accessor.ComponentType = GLTFComponentType.UnsignedInt;
 
@@ -1528,21 +2339,6 @@ namespace UnityGLTF
 			_root.Accessors.Add(accessor);
 
 			return id;
-		}
-
-		private long AppendToBufferMultiplyOf4(long byteOffset, long byteLength)
-		{
-		    var moduloOffset = byteLength % 4;
-		    if (moduloOffset > 0)
-		    {
-			for (int i = 0; i < (4 - moduloOffset); i++)
-			{
-			    _bufferWriter.Write((byte)0x00);
-			}
-			byteLength = _bufferWriter.BaseStream.Position - byteOffset;
-		    }
-
-		    return byteLength;
 		}
 
 		private AccessorId ExportAccessor(Vector2[] arr)
@@ -1945,18 +2741,17 @@ namespace UnityGLTF
 			{
 				bool filterIsNearest = root.Samplers[i].MinFilter == MinFilterMode.Nearest
 					|| root.Samplers[i].MinFilter == MinFilterMode.NearestMipmapNearest
-					|| root.Samplers[i].MinFilter == MinFilterMode.NearestMipmapLinear;
+					|| root.Samplers[i].MinFilter == MinFilterMode.LinearMipmapNearest;
 
 				bool filterIsLinear = root.Samplers[i].MinFilter == MinFilterMode.Linear
-					|| root.Samplers[i].MinFilter == MinFilterMode.LinearMipmapNearest;
+					|| root.Samplers[i].MinFilter == MinFilterMode.NearestMipmapLinear;
 
 				bool filterMatched = textureObj.filterMode == FilterMode.Point && filterIsNearest
 					|| textureObj.filterMode == FilterMode.Bilinear && filterIsLinear
 					|| textureObj.filterMode == FilterMode.Trilinear && root.Samplers[i].MinFilter == MinFilterMode.LinearMipmapLinear;
 
 				bool wrapMatched = textureObj.wrapMode == TextureWrapMode.Clamp && root.Samplers[i].WrapS == WrapMode.ClampToEdge
-					|| textureObj.wrapMode == TextureWrapMode.Repeat && root.Samplers[i].WrapS == WrapMode.Repeat
-					|| textureObj.wrapMode == TextureWrapMode.Mirror && root.Samplers[i].WrapS == WrapMode.MirroredRepeat;
+					|| textureObj.wrapMode == TextureWrapMode.Repeat && root.Samplers[i].WrapS != WrapMode.ClampToEdge;
 
 				if (filterMatched && wrapMatched)
 				{
@@ -1983,5 +2778,1006 @@ namespace UnityGLTF
 
 			throw new Exception("glTF does not support Unity mesh topology: " + topology);
 		}
+
+
+		public enum AnimationKeyRotationType
+		{
+			Unknown,
+			Quaternion,
+			Euler
+		};
+
+		private struct TargetCurveSet
+		{
+			public AnimationCurve[] translationCurves;
+			public AnimationCurve[] rotationCurves;
+			public AnimationCurve[] scaleCurves;
+			public AnimationKeyRotationType rotationType;
+			public Dictionary<string, AnimationCurve> weightCurves;
+
+			public void Init()
+			{
+				translationCurves = new AnimationCurve[3];
+				rotationCurves = new AnimationCurve[4];
+				scaleCurves = new AnimationCurve[3];
+				weightCurves = new Dictionary<string, AnimationCurve>();
+			}
+		}
+
+		// Parses Animation/Animator component and generate a glTF animation for the active clip
+		// This may need additional work to fully support animatorControllers
+		public void ExportAnimationFromNode(ref Transform transform)
+		{
+			Animator animator = transform.GetComponent<Animator>();
+			if (animator != null)
+			{
+#if ANIMATION_EXPORT_SUPPORTED
+                AnimationClip[] clips = AnimationUtility.GetAnimationClips(transform.gameObject);
+                var animatorController = animator.runtimeAnimatorController as AnimatorController;
+
+                ExportAnimationClips(transform, clips, animatorController);
+#endif
+			}
+
+			UnityEngine.Animation animation = transform.GetComponent<UnityEngine.Animation>();
+			if (animation != null)
+			{
+#if ANIMATION_EXPORT_SUPPORTED
+                AnimationClip[] clips = UnityEditor.AnimationUtility.GetAnimationClips(transform.gameObject);
+                ExportAnimationClips(transform, clips);
+#endif
+			}
+
+#if ANIMATION_EXPORT_SUPPORTED
+			IEnumerable<AnimatorState> GetAnimatorStateParametersForClip(AnimationClip clip, AnimatorController animatorController)
+			{
+				if (!clip)
+					yield break;
+
+				if (!animatorController)
+					yield return new AnimatorState() { name = clip.name, speed = 1f };
+
+				foreach (var layer in animatorController.layers)
+				{
+					foreach (var state in layer.stateMachine.states)
+					{
+						// find a matching clip in the animator
+						if (state.state.motion is AnimationClip c && c == clip)
+						{
+							yield return state.state;
+						}
+					}
+				}
+			}
+
+			/// <summary>Creates GLTFAnimation for each clip and adds it to the _root</summary>
+			void ExportAnimationClips(Transform nodeTransform, AnimationClip[] clips, AnimatorController animatorController = null)
+			{
+				for (int i = 0; i < clips.Length; i++)
+				{
+					// special case: there could be multiple states with the same animation clip.
+					// if we want to handle this here, we need to find all states that match this clip
+					foreach(var state in GetAnimatorStateParametersForClip(clips[i], animatorController))
+					{
+						GLTFAnimation anim = new GLTFAnimation();
+						anim.Name = state.name;
+						var speed = state.speed * (state.speedParameterActive ? animator.GetFloat(state.speedParameter) : 1f);
+						ConvertClipToGLTFAnimation(ref clips[i], ref nodeTransform, ref anim, speed);
+
+						if (anim.Channels.Count > 0 && anim.Samplers.Count > 0)
+						{
+							_root.Animations.Add(anim);
+						}
+					}
+				}
+			}
+#endif
+		}
+
+		private int getTargetIdFromTransform(ref Transform transform)
+		{
+			if (_exportedTransforms.ContainsKey(transform.GetInstanceID()))
+			{
+				return _exportedTransforms[transform.GetInstanceID()];
+			}
+			else
+			{
+				Debug.LogError("Transform is not part of _exportedTransforms: " + transform.name + " " + transform.GetInstanceID(), transform);
+				return 0;
+			}
+		}
+
+
+
+		private void ConvertClipToGLTFAnimation(ref AnimationClip clip, ref Transform transform, ref GLTF.Schema.GLTFAnimation animation, float speed = 1f)
+		{
+			// Generate GLTF.Schema.AnimationChannel and GLTF.Schema.AnimationSampler
+			// 1 channel per node T/R/S, one sampler per node T/R/S
+			// Need to keep a list of nodes to convert to indexes
+
+			// 1. browse clip, collect all curves and create a TargetCurveSet for each target
+			Dictionary<string, TargetCurveSet> targetCurvesBinding = new Dictionary<string, TargetCurveSet>();
+			CollectClipCurves(clip, ref targetCurvesBinding);
+
+			//foreach(var str in targetCurvesBinding)
+			//{
+			//	Debug.Log(clip.name + ": " + transform.name + ": " + str);
+			//}
+
+			// Baking needs all properties, fill missing curves with transform data in 2 keyframes (start, endTime)
+			// where endTime is clip duration
+			// Note: we should avoid creating curves for a property if none of it's components is animated
+
+			GenerateMissingCurves(clip.length, ref transform, ref targetCurvesBinding);
+
+			if (BakeAnimationData)
+			{
+				// Debug.Log("<b>Animated Properties: " + targetCurvesBinding.Count + "</b>");
+				// Bake animation for all animated nodes
+				foreach (string target in targetCurvesBinding.Keys)
+				{
+					Transform targetTr = target.Length > 0 ? transform.Find(target) : transform;
+					if (targetTr == null)// || targetTr.GetComponent<SkinnedMeshRenderer>())
+					{
+						continue;
+					}
+
+					TargetCurveSet current = targetCurvesBinding[target];
+					int haveTranslationCurves = current.translationCurves[0] != null ? current.translationCurves.Length : 0;
+					int haveScaleCurves = current.scaleCurves[0] != null ? current.scaleCurves.Length : 0;
+					int haveRotationCurves = current.rotationCurves[0] != null ? current.rotationCurves.Length : 0;
+
+					// Initialize data
+					// Bake and populate animation data
+					float[] times = null;
+					Vector3[] positions = null;
+					Vector3[] scales = null;
+					Vector4[] rotations = null;
+					float[] weights = null;
+
+					var speedMultiplier = Mathf.Clamp(speed, 0.01f, Mathf.Infinity);
+					if (!BakeCurveSet(targetCurvesBinding[target], clip.length, AnimationBakingFramerate, speedMultiplier, ref times, ref positions, ref rotations, ref scales, ref weights))
+					{
+						Debug.LogWarning("Warning: Export failed for animation curve " + target + " in " + clip + " from " + transform, transform);
+					}
+
+					int channelTargetId = getTargetIdFromTransform(ref targetTr);
+
+					bool haveAnimation = positions != null || rotations != null || scales != null || weights != null;
+
+					if(haveAnimation)
+					{
+						AccessorId timeAccessor = ExportAccessor(times);
+
+						// Translation
+						if(positions != null)
+						{
+							AnimationChannel Tchannel = new AnimationChannel();
+							AnimationChannelTarget TchannelTarget = new AnimationChannelTarget();
+							TchannelTarget.Path = GLTFAnimationChannelPath.translation;
+							TchannelTarget.Node = new NodeId
+							{
+								Id = channelTargetId,
+								Root = _root
+							};
+
+							Tchannel.Target = TchannelTarget;
+
+							AnimationSampler Tsampler = new AnimationSampler();
+							Tsampler.Input = timeAccessor;
+							Tsampler.Output = ExportAccessor(SchemaExtensions.ConvertVector3CoordinateSpaceAndCopy(positions, SchemaExtensions.CoordinateSpaceConversionScale));
+							Tchannel.Sampler = new AnimationSamplerId
+							{
+								Id = animation.Samplers.Count,
+								GLTFAnimation = animation,
+								Root = _root
+							};
+
+							animation.Samplers.Add(Tsampler);
+							animation.Channels.Add(Tchannel);
+						}
+
+						// Rotation
+						if(rotations != null)
+						{
+							AnimationChannel Rchannel = new AnimationChannel();
+							AnimationChannelTarget RchannelTarget = new AnimationChannelTarget();
+							RchannelTarget.Path = GLTFAnimationChannelPath.rotation;
+							RchannelTarget.Node = new NodeId
+							{
+								Id = channelTargetId,
+								Root = _root
+							};
+
+							Rchannel.Target = RchannelTarget;
+
+							AnimationSampler Rsampler = new AnimationSampler();
+							Rsampler.Input = timeAccessor; // Float, for time
+							Rsampler.Output = ExportAccessor(rotations, true); // Vec4 for
+							Rchannel.Sampler = new AnimationSamplerId
+							{
+								Id = animation.Samplers.Count,
+								GLTFAnimation = animation,
+								Root = _root
+							};
+
+							animation.Samplers.Add(Rsampler);
+							animation.Channels.Add(Rchannel);
+						}
+
+						// Scale
+						if(scales != null)
+						{
+							AnimationChannel Schannel = new AnimationChannel();
+							AnimationChannelTarget SchannelTarget = new AnimationChannelTarget();
+							SchannelTarget.Path = GLTFAnimationChannelPath.scale;
+							SchannelTarget.Node = new NodeId
+							{
+								Id = channelTargetId,
+								Root = _root
+							};
+
+							Schannel.Target = SchannelTarget;
+
+							AnimationSampler Ssampler = new AnimationSampler();
+							Ssampler.Input = timeAccessor; // Float, for time
+							Ssampler.Output = ExportAccessor(scales); // Vec3 for scale
+							Schannel.Sampler = new AnimationSamplerId
+							{
+								Id = animation.Samplers.Count,
+								GLTFAnimation = animation,
+								Root = _root
+							};
+
+							animation.Samplers.Add(Ssampler);
+							animation.Channels.Add(Schannel);
+						}
+
+						if (weights != null)
+						{
+							AnimationChannel Wchannel = new AnimationChannel();
+							AnimationChannelTarget WchannelTarget = new AnimationChannelTarget();
+							WchannelTarget.Path = GLTFAnimationChannelPath.weights;
+							WchannelTarget.Node = new NodeId()
+							{
+								Id = channelTargetId,
+								Root = _root
+							};
+
+							Wchannel.Target = WchannelTarget;
+
+							AnimationSampler Wsampler = new AnimationSampler();
+							Wsampler.Input = timeAccessor;
+							Wsampler.Output = ExportAccessor(weights);
+							Wchannel.Sampler = new AnimationSamplerId()
+							{
+								Id = animation.Samplers.Count,
+								GLTFAnimation = animation,
+								Root = _root
+							};
+
+							animation.Samplers.Add(Wsampler);
+							animation.Channels.Add(Wchannel);
+						}
+					}
+				}
+			}
+			else
+			{
+				Debug.LogError("Only baked animation is supported for now. Skipping animation");
+			}
+
+		}
+
+		private void CollectClipCurves(AnimationClip clip, ref Dictionary<string, TargetCurveSet> targetCurves)
+		{
+			#if UNITY_EDITOR
+			foreach (var binding in UnityEditor.AnimationUtility.GetCurveBindings(clip))
+			{
+				AnimationCurve curve = UnityEditor.AnimationUtility.GetEditorCurve(clip, binding);
+
+				if (!targetCurves.ContainsKey(binding.path))
+				{
+					TargetCurveSet curveSet = new TargetCurveSet();
+					curveSet.Init();
+					targetCurves.Add(binding.path, curveSet);
+				}
+
+				TargetCurveSet current = targetCurves[binding.path];
+				if (binding.propertyName.Contains("m_LocalPosition"))
+				{
+					if (binding.propertyName.Contains(".x"))
+						current.translationCurves[0] = curve;
+					else if (binding.propertyName.Contains(".y"))
+						current.translationCurves[1] = curve;
+					else if (binding.propertyName.Contains(".z"))
+						current.translationCurves[2] = curve;
+				}
+				else if (binding.propertyName.Contains("m_LocalScale"))
+				{
+					if (binding.propertyName.Contains(".x"))
+						current.scaleCurves[0] = curve;
+					else if (binding.propertyName.Contains(".y"))
+						current.scaleCurves[1] = curve;
+					else if (binding.propertyName.Contains(".z"))
+						current.scaleCurves[2] = curve;
+				}
+				else if (binding.propertyName.ToLower().Contains("localrotation"))
+				{
+					current.rotationType = AnimationKeyRotationType.Quaternion;
+					if (binding.propertyName.Contains(".x"))
+						current.rotationCurves[0] = curve;
+					else if (binding.propertyName.Contains(".y"))
+						current.rotationCurves[1] = curve;
+					else if (binding.propertyName.Contains(".z"))
+						current.rotationCurves[2] = curve;
+					else if (binding.propertyName.Contains(".w"))
+						current.rotationCurves[3] = curve;
+				}
+				// Takes into account 'localEuler', 'localEulerAnglesBaked' and 'localEulerAnglesRaw'
+				else if (binding.propertyName.ToLower().Contains("localeuler"))
+				{
+					current.rotationType = AnimationKeyRotationType.Euler;
+					if (binding.propertyName.Contains(".x"))
+						current.rotationCurves[0] = curve;
+					else if (binding.propertyName.Contains(".y"))
+						current.rotationCurves[1] = curve;
+					else if (binding.propertyName.Contains(".z"))
+						current.rotationCurves[2] = curve;
+				}
+				else if (binding.propertyName.StartsWith("blendShape."))
+				{
+					var weightName = binding.propertyName.Substring("blendShape.".Length);
+					current.weightCurves.Add(weightName, curve);
+				}
+				targetCurves[binding.path] = current;
+			}
+			#endif
+		}
+
+		private void GenerateMissingCurves(float endTime, ref Transform tr, ref Dictionary<string, TargetCurveSet> targetCurvesBinding)
+		{
+			var keyList = targetCurvesBinding.Keys.ToList();
+			foreach (string target in keyList)
+			{
+				Transform targetTr = target.Length > 0 ? tr.Find(target) : tr;
+				if (targetTr == null)
+					continue;
+
+				TargetCurveSet current = targetCurvesBinding[target];
+				// if (current.translationCurves[0] == null)
+				// {
+				// 	current.translationCurves[0] = CreateConstantCurve(targetTr.localPosition.x, endTime);
+				// 	current.translationCurves[1] = CreateConstantCurve(targetTr.localPosition.y, endTime);
+				// 	current.translationCurves[2] = CreateConstantCurve(targetTr.localPosition.z, endTime);
+				// }
+				//
+				// if (current.scaleCurves[0] == null)
+				// {
+				// 	current.scaleCurves[0] = CreateConstantCurve(targetTr.localScale.x, endTime);
+				// 	current.scaleCurves[1] = CreateConstantCurve(targetTr.localScale.y, endTime);
+				// 	current.scaleCurves[2] = CreateConstantCurve(targetTr.localScale.z, endTime);
+				// }
+				//
+				// if (current.rotationCurves[0] == null)
+				// {
+				// 	current.rotationCurves[0] = CreateConstantCurve(targetTr.localRotation.x, endTime);
+				// 	current.rotationCurves[1] = CreateConstantCurve(targetTr.localRotation.y, endTime);
+				// 	current.rotationCurves[2] = CreateConstantCurve(targetTr.localRotation.z, endTime);
+				// 	current.rotationCurves[3] = CreateConstantCurve(targetTr.localRotation.w, endTime);
+				// }
+
+				if (current.weightCurves.Count > 0)
+				{
+					// need to sort and generate the other matching curves as constant curves for all blend shapes
+					var renderer = targetTr.GetComponent<SkinnedMeshRenderer>();
+					var mesh = renderer.sharedMesh;
+					var shapeCount = mesh.blendShapeCount;
+					if(shapeCount != current.weightCurves.Count)
+					{
+						var newWeights = new Dictionary<string, AnimationCurve>();
+						for (int i = 0; i < shapeCount; i++)
+						{
+							var shapeName = mesh.GetBlendShapeName(i);
+							var shapeCurve = current.weightCurves.ContainsKey(shapeName) ? current.weightCurves[shapeName] : CreateConstantCurve(renderer.GetBlendShapeWeight(i), endTime);
+							newWeights.Add(shapeName, shapeCurve);
+						}
+
+						current.weightCurves = newWeights;
+					}
+				}
+
+				targetCurvesBinding[target] = current;
+			}
+		}
+
+		private AnimationCurve CreateConstantCurve(float value, float endTime)
+		{
+			// No translation curves, adding them
+			AnimationCurve curve = new AnimationCurve();
+			curve.AddKey(0, value);
+			curve.AddKey(endTime, value);
+			return curve;
+		}
+
+		private bool ArrayRangeEquals(float[] array, int sectionLength, int prevSectionStart, int sectionStart, int nextSectionStart)
+		{
+			var equals = true;
+			for (int i = 0; i < sectionLength; i++)
+			{
+				equals &= array[prevSectionStart + i] == array[sectionStart + i] && array[sectionStart + i] == array[nextSectionStart + i];
+				if (!equals) return false;
+			}
+
+			return true;
+		}
+
+		private bool BakeCurveSet(TargetCurveSet curveSet, float length, float bakingFramerate, float speedMultiplier, ref float[] times, ref Vector3[] positions, ref Vector4[] rotations, ref Vector3[] scales, ref float[] weights)
+		{
+			int nbSamples = Mathf.Max(1, Mathf.CeilToInt(length * bakingFramerate));
+			float deltaTime = length / nbSamples;
+			var weightCount = curveSet.weightCurves?.Count ?? 0;
+
+			bool haveTranslationKeys = curveSet.translationCurves != null && curveSet.translationCurves.Length > 0 && curveSet.translationCurves[0] != null;
+			bool haveRotationKeys = curveSet.rotationCurves != null && curveSet.rotationCurves.Length > 0 && curveSet.rotationCurves[0] != null;
+			bool haveScaleKeys = curveSet.scaleCurves != null && curveSet.scaleCurves.Length > 0 && curveSet.scaleCurves[0] != null;
+			bool haveWeightKeys = curveSet.weightCurves != null && curveSet.weightCurves.Count > 0;
+
+			if(haveScaleKeys)
+			{
+				if(curveSet.scaleCurves.Length < 3)
+				{
+					Debug.LogError("Have Scale Animation, but not all properties are animated. Ignoring for now");
+					return false;
+				}
+				bool anyIsNull = false;
+				foreach (var sc in curveSet.scaleCurves)
+					anyIsNull |= sc == null;
+
+				if (anyIsNull)
+				{
+					Debug.LogWarning("A scale curve has at least one null property curve! Ignoring");
+					haveScaleKeys = false;
+				}
+			}
+
+			if(haveRotationKeys)
+			{
+				bool anyIsNull = false;
+				int checkRotationKeyCount = curveSet.rotationType == AnimationKeyRotationType.Euler ? 3 : 4;
+				for (int i = 0; i < checkRotationKeyCount; i++)
+				{
+					anyIsNull |= curveSet.rotationCurves.Length - 1 < i || curveSet.rotationCurves[i] == null;
+				}
+
+				if (anyIsNull)
+				{
+					Debug.LogWarning("A rotation curve has at least one null property curve! Ignoring");
+					haveRotationKeys = false;
+				}
+			}
+
+			if(!haveTranslationKeys && !haveRotationKeys && !haveScaleKeys && !haveWeightKeys)
+			{
+				Debug.LogWarning("No keys in curve set");
+				return false;
+			}
+
+			// Initialize Arrays
+			times = new float[nbSamples];
+			if(haveTranslationKeys)
+				positions = new Vector3[nbSamples];
+			if(haveScaleKeys)
+				scales = new Vector3[nbSamples];
+			if(haveRotationKeys)
+				rotations = new Vector4[nbSamples];
+			if (haveWeightKeys)
+				weights = new float[nbSamples * weightCount];
+
+			// Assuming all the curves exist now
+			for (int i = 0; i < nbSamples; ++i)
+			{
+				float currentTime = i * deltaTime;
+				times[i] = currentTime / speedMultiplier;
+
+				if(haveTranslationKeys)
+					positions[i] = new Vector3(curveSet.translationCurves[0].Evaluate(currentTime), curveSet.translationCurves[1].Evaluate(currentTime), curveSet.translationCurves[2].Evaluate(currentTime));
+
+				if(haveScaleKeys)
+					scales[i] = new Vector3(curveSet.scaleCurves[0].Evaluate(currentTime), curveSet.scaleCurves[1].Evaluate(currentTime), curveSet.scaleCurves[2].Evaluate(currentTime));
+
+				if(haveRotationKeys)
+				{
+					if (curveSet.rotationType == AnimationKeyRotationType.Euler)
+					{
+						Quaternion eulerToQuat = Quaternion.Euler(curveSet.rotationCurves[0].Evaluate(currentTime), curveSet.rotationCurves[1].Evaluate(currentTime), curveSet.rotationCurves[2].Evaluate(currentTime));
+						rotations[i] = new Vector4(eulerToQuat.x, eulerToQuat.y, eulerToQuat.z, eulerToQuat.w);
+					}
+					else
+					{
+						rotations[i] = new Vector4(curveSet.rotationCurves[0].Evaluate(currentTime), curveSet.rotationCurves[1].Evaluate(currentTime), curveSet.rotationCurves[2].Evaluate(currentTime), curveSet.rotationCurves[3].Evaluate(currentTime));
+					}
+				}
+
+				if (haveWeightKeys)
+				{
+					var curveArray = curveSet.weightCurves.Values.ToArray();
+					for(int j = 0; j < weightCount; j++)
+					{
+						weights[i * weightCount + j] = curveArray[j].Evaluate(times[i]) * 0.01f; // glTF weights 0..1 match to Unity weights 0..100
+					}
+				}
+			}
+
+			// remove keys again where prev/next keyframe are identical
+			List<float> t2 = new List<float>();
+			List<Vector3> p2 = new List<Vector3>();
+			List<Vector3> s2 = new List<Vector3>();
+			List<Vector4> r2 = new List<Vector4>();
+			List<float> w2 = new List<float>();
+
+			t2.Add(times[0]);
+			if (haveTranslationKeys) p2.Add(positions[0]);
+			if (haveRotationKeys) r2.Add(rotations[0]);
+			if (haveScaleKeys) s2.Add(scales[0]);
+			if (haveWeightKeys) w2.AddRange(weights.Take(weightCount));
+
+			for (int i = 1; i < times.Length - 1; i++)
+			{
+				// check identical
+				bool isIdentical = true;
+				if (haveTranslationKeys)
+					isIdentical &= positions[i - 1] == positions[i] && positions[i] == positions[i + 1];
+				if(haveRotationKeys)
+					isIdentical &= rotations[i - 1] == rotations[i] && rotations[i] == rotations[i + 1];
+				if (haveScaleKeys)
+					isIdentical &= scales[i - 1] == scales[i] && scales[i] == scales[i + 1];
+				if (haveWeightKeys)
+					isIdentical &= ArrayRangeEquals(weights, weightCount, (i - 1) * weightCount, i * weightCount, (i+1) * weightCount);
+
+				if(!isIdentical)
+				{
+					t2.Add(times[i]);
+					if (haveTranslationKeys) p2.Add(positions[i]);
+					if (haveRotationKeys) r2.Add(rotations[i]);
+					if (haveScaleKeys) s2.Add(scales[i]);
+					if (haveWeightKeys) w2.AddRange(weights.Skip((i-1) * weightCount).Take(weightCount));
+				}
+			}
+			var max = times.Length - 1;
+
+			t2.Add(times[max]);
+			if (haveTranslationKeys) p2.Add(positions[max]);
+			if (haveRotationKeys) r2.Add(rotations[max]);
+			if (haveScaleKeys) s2.Add(scales[max]);
+			if(haveWeightKeys) w2.AddRange(weights.Skip((max - 1) * weightCount).Take(weightCount));
+
+			// Debug.Log("Keyframes before compression: " + times.Length + "; " + "Keyframes after compression: " + t2.Count);
+
+			times = t2.ToArray();
+			if (haveTranslationKeys) positions = p2.ToArray();
+			if (haveRotationKeys) rotations = r2.ToArray();
+			if (haveScaleKeys) scales = s2.ToArray();
+			if (haveWeightKeys) weights = w2.ToArray();
+
+			return true;
+		}
+
+		private UnityEngine.Mesh getMesh(GameObject gameObject)
+		{
+			if (gameObject.GetComponent<MeshFilter>())
+			{
+				return gameObject.GetComponent<MeshFilter>().sharedMesh;
+			}
+
+			SkinnedMeshRenderer skinMesh = gameObject.GetComponent<SkinnedMeshRenderer>();
+			if (skinMesh)
+			{
+				if (!ExportAnimations && BakeSkinnedMeshes)
+				{
+					if (!_bakedMeshes.ContainsKey(skinMesh))
+					{
+						UnityEngine.Mesh bakedMesh = new UnityEngine.Mesh();
+						skinMesh.BakeMesh(bakedMesh);
+						_bakedMeshes.Add(skinMesh, bakedMesh);
+					}
+
+					return _bakedMeshes[skinMesh];
+				}
+
+				return gameObject.GetComponent<SkinnedMeshRenderer>().sharedMesh;
+			}
+
+			return null;
+		}
+
+		private UnityEngine.Material[] getMaterial(GameObject gameObject)
+		{
+			if (gameObject.GetComponent<MeshRenderer>())
+			{
+				return gameObject.GetComponent<MeshRenderer>().sharedMaterials;
+			}
+
+			if (gameObject.GetComponent<SkinnedMeshRenderer>())
+			{
+				return gameObject.GetComponent<SkinnedMeshRenderer>().sharedMaterials;
+			}
+
+			return null;
+		}
+
+		private void ExportSkinFromNode(Transform transform)
+		{
+			PrimKey key = new PrimKey();
+			UnityEngine.Mesh mesh = getMesh(transform.gameObject);
+			key.Mesh = mesh;
+			key.Materials = getMaterial(transform.gameObject);
+			MeshId val;
+			if (!_primOwner.TryGetValue(key, out val))
+			{
+				Debug.Log("No mesh found for skin on " + transform, transform);
+				return;
+			}
+			SkinnedMeshRenderer skin = transform.GetComponent<SkinnedMeshRenderer>();
+			GLTF.Schema.Skin gltfSkin = new Skin();
+
+			bool allBoneTransformNodesHaveBeenExported = true;
+			for (int i = 0; i < skin.bones.Length; ++i)
+			{
+				var nodeId = skin.bones[i].GetInstanceID();
+				if (!_exportedTransforms.ContainsKey(nodeId))
+				{
+					allBoneTransformNodesHaveBeenExported = false;
+					break;
+				}
+			}
+
+			if (!allBoneTransformNodesHaveBeenExported)
+			{
+				Debug.LogWarning("Not all bones for SkinnedMeshRenderer " + transform + " were exported. Skin information will be skipped. Make sure the bones are active and enabled if you want to export them.", transform);
+				return;
+			}
+
+			for (int i = 0; i < skin.bones.Length; ++i)
+			{
+				var nodeId = skin.bones[i].GetInstanceID();
+
+				gltfSkin.Joints.Add(
+					new NodeId
+					{
+						Id = _exportedTransforms[nodeId],
+						Root = _root
+					});
+			}
+
+			gltfSkin.InverseBindMatrices = ExportAccessor(mesh.bindposes);
+
+			Vector4[] bones = boneWeightToBoneVec4(mesh.boneWeights);
+			Vector4[] weights = boneWeightToWeightVec4(mesh.boneWeights);
+
+			GLTF.Schema.GLTFMesh gltfMesh = _root.Meshes[val.Id];
+			foreach (MeshPrimitive prim in gltfMesh.Primitives)
+			{
+				if (!prim.Attributes.ContainsKey("JOINTS_0"))
+					prim.Attributes.Add("JOINTS_0", ExportAccessorUint(bones));
+				if (!prim.Attributes.ContainsKey("WEIGHTS_0"))
+					prim.Attributes.Add("WEIGHTS_0", ExportAccessor(weights));
+			}
+
+			_root.Nodes[_exportedTransforms[transform.GetInstanceID()]].Skin = new SkinId() { Id = _root.Skins.Count, Root = _root };
+			_root.Skins.Add(gltfSkin);
+		}
+
+		private Vector4[] boneWeightToBoneVec4(BoneWeight[] bw)
+		{
+			Vector4[] bones = new Vector4[bw.Length];
+			for (int i = 0; i < bw.Length; ++i)
+			{
+				bones[i] = new Vector4(bw[i].boneIndex0, bw[i].boneIndex1, bw[i].boneIndex2, bw[i].boneIndex3);
+			}
+
+			return bones;
+		}
+
+		private Vector4[] boneWeightToWeightVec4(BoneWeight[] bw)
+		{
+			Vector4[] weights = new Vector4[bw.Length];
+			for (int i = 0; i < bw.Length; ++i)
+			{
+				weights[i] = new Vector4(bw[i].weight0, bw[i].weight1, bw[i].weight2, bw[i].weight3);
+			}
+
+			return weights;
+		}
+
+		private AccessorId ExportAccessorUint(Vector4[] arr)
+		{
+			var count = (uint)arr.Length;
+
+			if (count == 0)
+			{
+				throw new Exception("Accessors can not have a count of 0.");
+			}
+
+			var accessor = new Accessor();
+			accessor.ComponentType = GLTFComponentType.UnsignedShort;
+			accessor.Count = count;
+			accessor.Type = GLTFAccessorAttributeType.VEC4;
+
+			float minX = arr[0].x;
+			float minY = arr[0].y;
+			float minZ = arr[0].z;
+			float minW = arr[0].w;
+			float maxX = arr[0].x;
+			float maxY = arr[0].y;
+			float maxZ = arr[0].z;
+			float maxW = arr[0].w;
+
+			for (var i = 1; i < count; i++)
+			{
+				var cur = arr[i];
+
+				if (cur.x < minX)
+				{
+					minX = cur.x;
+				}
+				if (cur.y < minY)
+				{
+					minY = cur.y;
+				}
+				if (cur.z < minZ)
+				{
+					minZ = cur.z;
+				}
+				if (cur.w < minW)
+				{
+					minW = cur.w;
+				}
+				if (cur.x > maxX)
+				{
+					maxX = cur.x;
+				}
+				if (cur.y > maxY)
+				{
+					maxY = cur.y;
+				}
+				if (cur.z > maxZ)
+				{
+					maxZ = cur.z;
+				}
+				if (cur.w > maxW)
+				{
+					maxW = cur.w;
+				}
+			}
+
+			accessor.Min = new List<double> { minX, minY, minZ, minW };
+			accessor.Max = new List<double> { maxX, maxY, maxZ, maxW };
+
+			AlignToBoundary(_bufferWriter.BaseStream, 0x00);
+			uint byteOffset = CalculateAlignment((uint)_bufferWriter.BaseStream.Position, 4);
+
+			foreach (var vec in arr)
+			{
+				_bufferWriter.Write((ushort)vec.x);
+				_bufferWriter.Write((ushort)vec.y);
+				_bufferWriter.Write((ushort)vec.z);
+				_bufferWriter.Write((ushort)vec.w);
+			}
+
+			uint byteLength = CalculateAlignment((uint)_bufferWriter.BaseStream.Position - byteOffset, 4);
+
+			accessor.BufferView = ExportBufferView((uint)byteOffset, (uint)byteLength);
+
+			var id = new AccessorId
+			{
+				Id = _root.Accessors.Count,
+				Root = _root
+			};
+			_root.Accessors.Add(accessor);
+
+			return id;
+		}
+
+		// This is used for Quaternions / Rotations
+		private AccessorId ExportAccessor(Vector4[] arr, bool switchHandedness = false)
+		{
+			var count = (uint)arr.Length;
+
+			if (count == 0)
+			{
+				throw new Exception("Accessors can not have a count of 0.");
+			}
+
+			var accessor = new Accessor();
+			accessor.ComponentType = GLTFComponentType.Float;
+			accessor.Count = count;
+			accessor.Type = GLTFAccessorAttributeType.VEC4;
+
+			var a0 = arr[0];
+			a0 = switchHandedness ? a0.switchHandedness() : a0;
+			a0 = a0.normalized;
+			float minX = a0.x;
+			float minY = a0.y;
+			float minZ = a0.z;
+			float minW = a0.w;
+			float maxX = a0.x;
+			float maxY = a0.y;
+			float maxZ = a0.z;
+			float maxW = a0.w;
+
+			for (var i = 1; i < count; i++)
+			{
+				var cur = arr[i];
+				cur = switchHandedness ? cur.switchHandedness() : cur;
+				cur = cur.normalized;
+
+				if (cur.x < minX)
+				{
+					minX = cur.x;
+				}
+				if (cur.y < minY)
+				{
+					minY = cur.y;
+				}
+				if (cur.z < minZ)
+				{
+					minZ = cur.z;
+				}
+				if (cur.w < minW)
+				{
+					minW = cur.w;
+				}
+				if (cur.x > maxX)
+				{
+					maxX = cur.x;
+				}
+				if (cur.y > maxY)
+				{
+					maxY = cur.y;
+				}
+				if (cur.z > maxZ)
+				{
+					maxZ = cur.z;
+				}
+				if (cur.w > maxW)
+				{
+					maxW = cur.w;
+				}
+			}
+
+			accessor.Min = new List<double> { minX, minY, minZ, minW };
+			accessor.Max = new List<double> { maxX, maxY, maxZ, maxW };
+
+			AlignToBoundary(_bufferWriter.BaseStream, 0x00);
+			uint byteOffset = CalculateAlignment((uint)_bufferWriter.BaseStream.Position, 4);
+
+			foreach (var vec in arr)
+			{
+				Vector4 vect = switchHandedness ? vec.switchHandedness() : vec;
+				vect = vect.normalized;
+				_bufferWriter.Write(vect.x);
+				_bufferWriter.Write(vect.y);
+				_bufferWriter.Write(vect.z);
+				_bufferWriter.Write(vect.w);
+			}
+
+			uint byteLength = CalculateAlignment((uint)_bufferWriter.BaseStream.Position - byteOffset, 4);
+
+			accessor.BufferView = ExportBufferView((uint)byteOffset, (uint)byteLength);
+
+			var id = new AccessorId
+			{
+				Id = _root.Accessors.Count,
+				Root = _root
+			};
+			_root.Accessors.Add(accessor);
+
+			return id;
+		}
+
+		private AccessorId ExportAccessor(float[] arr)
+		{
+			var count = (uint)arr.Length;
+
+			if (count == 0)
+			{
+				throw new Exception("Accessors can not have a count of 0.");
+			}
+
+			var accessor = new Accessor();
+			accessor.ComponentType = GLTFComponentType.Float;
+			accessor.Count = count;
+			accessor.Type = GLTFAccessorAttributeType.SCALAR;
+
+			float min = arr[0];
+			float max = arr[0];
+
+			for (var i = 1; i < count; i++)
+			{
+				var cur = arr[i];
+
+				if (cur < min)
+				{
+					min = cur;
+				}
+				if (cur > max)
+				{
+					max = cur;
+				}
+			}
+
+			accessor.Min = new List<double> { min };
+			accessor.Max = new List<double> { max };
+
+			AlignToBoundary(_bufferWriter.BaseStream, 0x00);
+			uint byteOffset = CalculateAlignment((uint)_bufferWriter.BaseStream.Position, 4);
+
+			foreach (var value in arr)
+			{
+				_bufferWriter.Write(value);
+			}
+
+			uint byteLength = CalculateAlignment((uint)_bufferWriter.BaseStream.Position - byteOffset, 4);
+
+			accessor.BufferView = ExportBufferView((uint)byteOffset, (uint)byteLength);
+
+			var id = new AccessorId
+			{
+				Id = _root.Accessors.Count,
+				Root = _root
+			};
+
+			_root.Accessors.Add(accessor);
+
+			return id;
+		}
+
+		private AccessorId ExportAccessor(Matrix4x4[] arr)
+		{
+			var count = (uint)arr.Length;
+
+			if (count == 0)
+			{
+				throw new Exception("Accessors can not have a count of 0.");
+			}
+
+			var accessor = new Accessor();
+			accessor.ComponentType = GLTFComponentType.Float;
+			accessor.Count = count;
+			accessor.Type = GLTFAccessorAttributeType.MAT4;
+
+			// Dont serialize min/max for matrices
+
+			AlignToBoundary(_bufferWriter.BaseStream, 0x00);
+			uint byteOffset = CalculateAlignment((uint)_bufferWriter.BaseStream.Position, 4);
+
+			foreach (var mat in arr)
+			{
+				var m = SchemaExtensions.ToGltfMatrix4x4Convert(mat);
+				for (uint i = 0; i < 4; ++i)
+				{
+					var col = m.GetColumn(i);
+					_bufferWriter.Write(col.X);
+					_bufferWriter.Write(col.Y);
+					_bufferWriter.Write(col.Z);
+					_bufferWriter.Write(col.W);
+				}
+			}
+
+			uint byteLength = CalculateAlignment((uint)_bufferWriter.BaseStream.Position - byteOffset, 4);
+
+			accessor.BufferView = ExportBufferView((uint)byteOffset, (uint)byteLength);
+
+			var id = new AccessorId
+			{
+				Id = _root.Accessors.Count,
+				Root = _root
+			};
+			_root.Accessors.Add(accessor);
+
+			return id;
+		}
+
 	}
 }

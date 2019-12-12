@@ -98,15 +98,17 @@ namespace GLTF.Schema
 			}
 		}
 
-		public static int[] GenerateIndices(int vertCount)
+		public static int[] GenerateTriangles(int vertCount)
 		{
-			var indices = new int[vertCount];
-			for (var i = 0; i < vertCount; i++)
+			var arr = new int[vertCount];
+			for (var i = 0; i < vertCount; i+=3)
 			{
-				indices[i] = i;
+				arr[i] = i + 2;
+				arr[i + 1] = i + 1;
+				arr[i + 2] = i;
 			}
 
-			return indices;
+			return arr;
 		}
 
 		// Taken from: http://answers.unity3d.com/comments/190515/view.html
@@ -230,11 +232,8 @@ namespace GLTF.Schema
 									case "targetNames":
 										primitive.TargetNames = reader.ReadStringList();
 										break;
-
 								}
-				
 							}
-
 						}
 
 						break;
@@ -296,7 +295,6 @@ namespace GLTF.Schema
 				}
 				writer.WriteEndArray();
 			}
-
 			// GLTF does not support morph target names, serialize in extras for now
 			// https://github.com/KhronosGroup/glTF/issues/1036
 			if (TargetNames != null && TargetNames.Count > 0)
@@ -321,10 +319,12 @@ namespace GLTF.Schema
 
 	public static class SemanticProperties
 	{
-		public const string POSITION = "POSITION";
+		public const string POSITION = "POSITION"; 
 		public const string NORMAL = "NORMAL";
+		public const string JOINT = "JOINT";
+		public const string WEIGHT = "WEIGHT";
 		public const string TANGENT = "TANGENT";
-		public const string INDICES = "INDICES";
+		public const string INDICES = "INDICIES";
 
 		public const string TEXCOORD_0 = "TEXCOORD_0";
 		public const string TEXCOORD_1 = "TEXCOORD_1";

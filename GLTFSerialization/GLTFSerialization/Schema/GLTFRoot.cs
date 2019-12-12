@@ -98,6 +98,8 @@ namespace GLTF.Schema
 		/// </summary>
 		public List<GLTFTexture> Textures;
 
+		public List<GLTFLight> Lights;
+
 		public GLTFRoot()
 		{
 		}
@@ -240,6 +242,16 @@ namespace GLTF.Schema
 					Textures.Add(new GLTFTexture(texture, this));
 				}
 			}
+
+
+			if (gltfRoot.Lights != null)
+			{
+				Lights = new List<GLTFLight>(gltfRoot.Lights.Count);
+				foreach (GLTFLight light in gltfRoot.Lights)
+				{
+					Lights.Add(new GLTFLight(light, this));
+				}
+			}
 		}
 
 		/// <summary>
@@ -333,6 +345,9 @@ namespace GLTF.Schema
 					case "textures":
 						root.Textures = jsonReader.ReadList(() => GLTFTexture.Deserialize(root, jsonReader));
 						break;
+					//case "lights":
+					//	root.Lights = jsonReader.ReadList(() => GLTFLight.Deserialize(root, jsonReader));
+					//	break;
 					default:
 						root.DefaultPropertyDeserializer(root, jsonReader);
 						break;
@@ -528,6 +543,23 @@ namespace GLTF.Schema
 					texture.Serialize(jsonWriter);
 				}
 				jsonWriter.WriteEndArray();
+			}
+
+			if (Lights != null)
+			{
+				jsonWriter.WritePropertyName("extensions");
+				jsonWriter.WriteStartObject();
+				jsonWriter.WritePropertyName("KHR_lights_punctual");
+				jsonWriter.WriteStartObject();
+				jsonWriter.WritePropertyName("lights");
+				jsonWriter.WriteStartArray();
+				foreach (var light in Lights)
+				{
+					light.Serialize(jsonWriter);
+				}
+				jsonWriter.WriteEndArray();
+				jsonWriter.WriteEndObject();
+				jsonWriter.WriteEndObject();
 			}
 
 			base.Serialize(jsonWriter);

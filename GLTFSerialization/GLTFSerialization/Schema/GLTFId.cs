@@ -282,6 +282,37 @@ namespace GLTF.Schema
 		}
 	}
 
+	public class AnimationSamplerId : GLTFId<AnimationSampler>
+	{
+		public GLTFAnimation GLTFAnimation;
+		public override AnimationSampler Value
+		{
+			get { return GLTFAnimation.Samplers[Id]; }
+		}
+
+		public AnimationSamplerId ()
+		{
+
+		}
+		public AnimationSamplerId (AnimationSamplerId sampler, GLTFRoot root)
+		{
+			Id = sampler.Id;
+			GLTFAnimation = sampler.GLTFAnimation;
+			Root = root;
+		}
+
+
+		public static AnimationSamplerId Deserialize(GLTFRoot root, GLTFAnimation anim, JsonReader reader)
+		{
+			return new AnimationSamplerId
+			{
+				Id = reader.ReadAsInt32().Value,
+				GLTFAnimation = anim,
+				Root = root
+			};
+		}
+	}
+
 	public class SceneId : GLTFId<GLTFScene>
 	{
 		public SceneId()
@@ -361,6 +392,31 @@ namespace GLTF.Schema
 			return new TextureId
 			{
 				Id = (int)jProperty.Value,
+				Root = root
+			};
+		}
+	}
+
+	public class LightId : GLTFId<GLTFLight>
+	{
+		public LightId()
+		{
+		}
+
+		public LightId(LightId id, GLTFRoot newRoot) : base(id, newRoot)
+		{
+		}
+
+		public override GLTFLight Value
+		{
+			get { return Root.Lights[Id]; } //should be extensions?
+		}
+
+		public static LightId Deserialize(GLTFRoot root, JsonReader reader)
+		{
+			return new LightId
+			{
+				Id = reader.ReadAsInt32().Value,
 				Root = root
 			};
 		}

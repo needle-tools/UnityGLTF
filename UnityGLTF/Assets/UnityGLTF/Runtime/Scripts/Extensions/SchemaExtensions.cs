@@ -322,12 +322,36 @@ namespace UnityGLTF.Extensions
 
 		public static UnityEngine.Color ToUnityColorRaw(this GLTF.Math.Color color)
 		{
-			return new UnityEngine.Color(color.R, color.G, color.B, color.A);
+			var c = new UnityEngine.Color(color.R, color.G, color.B, color.A).gamma;
+			return c;
+		}
+
+		public static UnityEngine.Color ToUnityColorLinear(this GLTF.Math.Color color)
+		{
+			var c = new UnityEngine.Color(color.R, color.G, color.B, color.A);
+			return c;
 		}
 
 		public static GLTF.Math.Color ToNumericsColorRaw(this UnityEngine.Color color)
 		{
-			return new GLTF.Math.Color(color.r, color.g, color.b, color.a);
+			var c = color;
+			return new GLTF.Math.Color(c.r, c.g, c.b, c.a);
+		}
+
+		public static GLTF.Math.Color ToNumericsColorLinear(this UnityEngine.Color color)
+		{
+			var lc = color.linear;
+			return new GLTF.Math.Color(lc.r, lc.g, lc.b, lc.a);
+		}
+
+		public static GLTF.Math.Color[] ToNumericsColorLinear(this UnityEngine.Color[] inColorArr)
+		{
+			GLTF.Math.Color[] outColorArr = new GLTF.Math.Color[inColorArr.Length];
+			for (int i = 0; i < inColorArr.Length; ++i)
+			{
+				outColorArr[i] = inColorArr[i].ToNumericsColorLinear();
+			}
+			return outColorArr;
 		}
 
 		public static UnityEngine.Color[] ToUnityColorRaw(this GLTF.Math.Color[] inColorArr)
@@ -340,11 +364,29 @@ namespace UnityGLTF.Extensions
 			return outColorArr;
 		}
 
+		public static UnityEngine.Color[] ToLinear(this UnityEngine.Color[] inColorArr)
+		{
+			UnityEngine.Color[] outColorArr = new UnityEngine.Color[inColorArr.Length];
+			for (int i = 0; i < inColorArr.Length; ++i)
+			{
+				outColorArr[i] = inColorArr[i].linear;
+			}
+			return outColorArr;
+		}
+
 		public static void ToUnityColorRaw(this GLTF.Math.Color[] inArr, Color[] outArr, int offset = 0)
 		{
 			for (int i = 0; i < inArr.Length; i++)
 			{
 				outArr[offset + i] = inArr[i].ToUnityColorRaw();
+			}
+		}
+
+		public static void ToUnityColorLinear(this GLTF.Math.Color[] inArr, Color[] outArr, int offset = 0)
+		{
+			for (int i = 0; i < inArr.Length; i++)
+			{
+				outArr[offset + i] = inArr[i].ToUnityColorLinear();
 			}
 		}
 
@@ -518,6 +560,44 @@ namespace UnityGLTF.Extensions
 				outMatrixArr[i] = inMatrixArr[i].ToUnityMatrix4x4();
 			}
 			return outMatrixArr;
+		}
+
+		public static Vector4 switchHandedness(this Vector4 input)
+		{
+			return new Vector4(-input.x, input.y, input.z, -input.w);
+		}
+
+
+		public static Quaternion switchHandedness(this Quaternion input)
+		{
+			return new Quaternion(input.x, input.y, -input.z, -input.w);
+		}
+
+		public static Matrix4x4 switchHandedness(this Matrix4x4 matrix)
+		{
+			Vector3 position = matrix.GetColumn(3).switchHandedness();
+			Quaternion rotation = Quaternion.LookRotation(matrix.GetColumn(2), matrix.GetColumn(1)).switchHandedness();
+			Vector3 scale = new Vector3(matrix.GetColumn(0).magnitude, matrix.GetColumn(1).magnitude, matrix.GetColumn(2).magnitude);
+
+			float epsilon = 0.00001f;
+
+			// Some issues can occurs with non uniform scales
+			if (Mathf.Abs(scale.x - scale.y) > epsilon || Mathf.Abs(scale.y - scale.z) > epsilon || Mathf.Abs(scale.x - scale.z) > epsilon)
+			{
+				Debug.LogWarning("A matrix with non uniform scale is being converted from left to right handed system. This code is not working correctly in this case");
+			}
+
+			// Handle negative scale component in matrix decomposition
+			if (Matrix4x4.Determinant(matrix) < 0)
+			{
+				Quaternion rot = Quaternion.LookRotation(matrix.GetColumn(2), matrix.GetColumn(1));
+				Matrix4x4 corr = Matrix4x4.TRS(matrix.GetColumn(3), rot, Vector3.one).inverse;
+				Matrix4x4 extractedScale = corr * matrix;
+				scale = new Vector3(extractedScale.m00, extractedScale.m11, extractedScale.m22);
+			}
+
+			// convert transform values from left handed to right handed
+			return Matrix4x4.TRS(position, rotation, scale);
 		}
 	}
 }

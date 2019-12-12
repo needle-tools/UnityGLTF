@@ -10,11 +10,13 @@ using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
+using GLTF.Schema.KHR_lights_punctual;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityGLTF.Cache;
 using UnityGLTF.Extensions;
 using UnityGLTF.Loader;
+using LightType = UnityEngine.LightType;
 using Matrix4x4 = GLTF.Math.Matrix4x4;
 using Object = UnityEngine.Object;
 #if !WINDOWS_UWP
@@ -1099,8 +1101,10 @@ namespace UnityGLTF
 			var valueDelta = keyframes[keyframeIndex].value - keyframes[keyframeIndex - 1].value;
 			var timeDelta = keyframes[keyframeIndex].time - keyframes[keyframeIndex - 1].time;
 
-			Debug.Assert(timeDelta > 0, "Unity does not allow you to put two keyframes in with the same time, so this should never occur.");
-
+			if(timeDelta <= 0) {
+				Debug.LogWarning("Unity does not allow you to put two keyframes in with the same time, so this should never occur.");
+				return 0;
+			}
 			return valueDelta / timeDelta;
 		}
 
@@ -1466,6 +1470,50 @@ namespace UnityGLTF
 			}
 			*/
 
+
+			const string lightExt = KHR_lights_punctualExtensionFactory.EXTENSION_NAME;
+			KHR_LightsPunctualNodeExtension lightsExtension = null;
+			if (_gltfRoot.ExtensionsUsed != null
+			    && _gltfRoot.ExtensionsUsed.Contains(lightExt)
+			    && node.Extensions != null
+			    && node.Extensions.ContainsKey(lightExt))
+			{
+				lightsExtension = node.Extensions[lightExt] as KHR_LightsPunctualNodeExtension;
+				var l = lightsExtension.LightId;
+				// var allLights = _gltfRoot.Extensions[KHR_lights_punctualExtensionFactory.EXTENSION_NAME] as KHR_LightsPunctualExtension;
+				// var selected = allLights.Lights[l.Id];
+				var light = l.Value;
+
+				var newLight = nodeObj.AddComponent<Light>();
+				switch (light.Type)
+				{
+					case GLTF.Schema.KHR_lights_punctual.LightType.spot:
+						newLight.type = LightType.Spot;
+						break;
+					case GLTF.Schema.KHR_lights_punctual.LightType.directional:
+						newLight.type = LightType.Directional;
+						break;
+					case GLTF.Schema.KHR_lights_punctual.LightType.point:
+						newLight.type = LightType.Point;
+						break;
+				}
+
+				newLight.name = light.Name;
+				newLight.intensity = (float) light.Intensity;
+				newLight.color = new Color(light.Color.R, light.Color.G, light.Color.B, light.Color.A);
+				newLight.range = (float) light.Range;
+				if(light.Spot != null)
+				{
+					#if UNITY_2019_1_OR_NEWER
+					newLight.innerSpotAngle = (float) light.Spot.InnerConeAngle * 2 / (Mathf.Deg2Rad * 0.8f);
+					#endif
+					newLight.spotAngle = (float) light.Spot.OuterConeAngle * 2 / Mathf.Deg2Rad;
+				}
+
+				// flip?
+				nodeObj.transform.localRotation *= Quaternion.Euler(0, 180, 0);
+			}
+
 			nodeObj.SetActive(true);
 
 			progressStatus.NodeLoaded++;
@@ -1493,12 +1541,13 @@ namespace UnityGLTF
 			Matrix4x4[] gltfBindPoses = null;
 			if (skin.InverseBindMatrices != null)
 			{
-				int bufferId = skin.InverseBindMatrices.Value.BufferView.Value.Buffer.Id;
+				var bufferId = skin.InverseBindMatrices.Value.BufferView.Value.Buffer;
+				var bufferData = await GetBufferData(bufferId);
 				AttributeAccessor attributeAccessor = new AttributeAccessor
 				{
 					AccessorId = skin.InverseBindMatrices,
-					Stream = _assetCache.BufferCache[bufferId].Stream,
-					Offset = _assetCache.BufferCache[bufferId].ChunkOffset
+					Stream = bufferData.Stream,
+					Offset = bufferData.ChunkOffset
 				};
 
 				GLTFHelpers.BuildBindPoseSamplers(ref attributeAccessor);
@@ -1565,7 +1614,7 @@ namespace UnityGLTF
 
 		/// <summary>
 		/// Allocate a generic type 2D array. The size is depending on the given parameters.
-		/// </summary>		
+		/// </summary>
 		/// <param name="x">Defines the depth of the arrays first dimension</param>
 		/// <param name="y">>Defines the depth of the arrays second dimension</param>
 		/// <returns></returns>
@@ -1674,7 +1723,7 @@ namespace UnityGLTF
 
 			var indices = meshAttributes.ContainsKey(SemanticProperties.INDICES)
 				? meshAttributes[SemanticProperties.INDICES].AccessorContent.AsUInts.ToIntArrayRaw()
-				: MeshPrimitive.GenerateIndices(vertexCount);
+				: MeshPrimitive.GenerateTriangles(vertexCount);
 			if (unityData.Topology[indexOffset] == MeshTopology.Triangles)
 				SchemaExtensions.FlipTriangleFaces(indices);
 			unityData.Indices[indexOffset] = indices;
@@ -1718,7 +1767,7 @@ namespace UnityGLTF
 			}
 			if (meshAttributes.ContainsKey(SemanticProperties.Color[0]))
 			{
-				meshAttributes[SemanticProperties.Color[0]].AccessorContent.AsColors.ToUnityColorRaw(unityData.Colors, vertOffset);
+				meshAttributes[SemanticProperties.Color[0]].AccessorContent.AsColors.ToUnityColorLinear(unityData.Colors, vertOffset);
 			}
 
 			var targets = primData.Targets;
@@ -1897,6 +1946,7 @@ namespace UnityGLTF
 		{
 			IUniformMap mapper;
 			const string specGlossExtName = KHR_materials_pbrSpecularGlossinessExtensionFactory.EXTENSION_NAME;
+			const string unlitExtName = KHR_MaterialsUnlitExtensionFactory.EXTENSION_NAME;
 			if (_gltfRoot.ExtensionsUsed != null && _gltfRoot.ExtensionsUsed.Contains(specGlossExtName)
 				&& def.Extensions != null && def.Extensions.ContainsKey(specGlossExtName))
 			{
@@ -1907,6 +1957,18 @@ namespace UnityGLTF
 				else
 				{
 					mapper = new SpecGlossMap(MaximumLod);
+				}
+			}
+			else if (_gltfRoot.ExtensionsUsed != null && _gltfRoot.ExtensionsUsed.Contains(unlitExtName)
+				&& def.Extensions != null && def.Extensions.ContainsKey(unlitExtName))
+			{
+				if (!string.IsNullOrEmpty(CustomShaderName))
+				{
+					mapper = new UnlitMap(CustomShaderName, MaximumLod);
+				}
+				else
+				{
+					mapper = new UnlitMap(MaximumLod);
 				}
 			}
 			else
@@ -2011,6 +2073,30 @@ namespace UnityGLTF
 						sgMapper.SpecularGlossinessXRotation = ext.Rotation;
 						sgMapper.SpecularGlossinessXScale = ext.Scale.ToUnityVector2Raw();
 						sgMapper.SpecularGlossinessXTexCoord = ext.TexCoord;
+					}
+				}
+			}
+
+			var unlitMapper = mapper as IUnlitUniformMap;
+			if (unlitMapper != null)
+			{
+				var pbr = def.PbrMetallicRoughness;
+				unlitMapper.BaseColorFactor = pbr.BaseColorFactor.ToUnityColorRaw();
+
+				if (pbr.BaseColorTexture != null)
+				{
+					TextureId textureId = pbr.BaseColorTexture.Index;
+					await ConstructTexture(textureId.Value, textureId.Id, !KeepCPUCopyOfTexture, false);
+					unlitMapper.BaseColorTexture = _assetCache.TextureCache[textureId.Id].Texture;
+					unlitMapper.BaseColorTexCoord = pbr.BaseColorTexture.TexCoord;
+
+					var ext = GetTextureTransform(pbr.BaseColorTexture);
+					if (ext != null)
+					{
+						unlitMapper.BaseColorXOffset = ext.Offset.ToUnityVector2Raw();
+						unlitMapper.BaseColorXRotation = ext.Rotation;
+						unlitMapper.BaseColorXScale = ext.Scale.ToUnityVector2Raw();
+						unlitMapper.BaseColorXTexCoord = ext.TexCoord;
 					}
 				}
 			}
@@ -2189,11 +2275,11 @@ namespace UnityGLTF
 					{
 						case MinFilterMode.Nearest:
 						case MinFilterMode.NearestMipmapNearest:
-						case MinFilterMode.LinearMipmapNearest:
+						case MinFilterMode.NearestMipmapLinear:
 							desiredFilterMode = FilterMode.Point;
 							break;
 						case MinFilterMode.Linear:
-						case MinFilterMode.NearestMipmapLinear:
+						case MinFilterMode.LinearMipmapNearest:
 							desiredFilterMode = FilterMode.Bilinear;
 							break;
 						case MinFilterMode.LinearMipmapLinear:

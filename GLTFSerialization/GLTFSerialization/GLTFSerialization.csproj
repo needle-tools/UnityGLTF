@@ -5,7 +5,6 @@
     <StartupObject />
 
     <TargetFrameworks>net35;netstandard1.3</TargetFrameworks>
-    <TargetFrameworks Condition="'$(MSBuildRuntimeType)' != 'Mono'">$(TargetFrameworks);uap10.0.10586</TargetFrameworks>
 
     <OutputType>Library</OutputType>
     <OutputPath>..\..\UnityGLTF\Assets\UnityGLTF\Runtime\Plugins\</OutputPath>
@@ -47,7 +46,10 @@
     <Optimize>true</Optimize>
     <DefineConstants>TRACE</DefineConstants>
   </PropertyGroup>
-
+	
+  <PropertyGroup>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
   <Choose>
     <When Condition="'$(IsUAPTargetFramework)' == 'true'">
       <PropertyGroup>
@@ -60,7 +62,6 @@
         <UnityPlayer>UAP</UnityPlayer>
       </PropertyGroup>
       <ItemGroup>
-        <PackageReference Include="Newtonsoft.Json" Version="9.0.1" />
         <PackageReference Include="Microsoft.NETCore.UniversalWindowsPlatform" Version="6.1.9" />
       </ItemGroup>
     </When>
@@ -69,7 +70,6 @@
         <ExcludedUnityPlayers>UAP</ExcludedUnityPlayers>
       </PropertyGroup>
       <ItemGroup>
-        <PackageReference Include="Newtonsoft.Json" Version="9.0.1" />
         <PackageReference Include="Microsoft.Net.Compilers" Version="2.7.0">
           <IncludeAssets>all</IncludeAssets>
           <ExcludeAssets>contentFiles</ExcludeAssets>
@@ -83,9 +83,6 @@
         <OutputPath>bin\$(Configuration)\</OutputPath>
         <ExcludedUnityPlayers>UAP</ExcludedUnityPlayers>
       </PropertyGroup>
-      <ItemGroup>
-        <PackageReference Include="Newtonsoft.Json" Version="11.0.1" />
-      </ItemGroup>
     </When>
   </Choose>
 
@@ -94,5 +91,6 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
+    <PackageReference Include="Newtonsoft.Json" Version="12.0.3" ExcludeAssets="runtime"/>
   </ItemGroup>
 </Project>
