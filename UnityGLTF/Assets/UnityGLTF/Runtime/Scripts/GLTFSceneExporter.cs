@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using GLTF.Schema;
-using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityGLTF.Extensions;
@@ -1390,6 +1389,7 @@ namespace UnityGLTF
 
 		bool TryGetTextureDataFromDisk(Texture texture, out string path, out byte[] data)
 		{
+#if UNITY_EDITOR
 			if (Application.isEditor && UnityEditor.AssetDatabase.Contains(texture))
 			{
 				path = UnityEditor.AssetDatabase.GetAssetPath(texture);
@@ -1399,7 +1399,7 @@ namespace UnityGLTF
 					return true;
 				}
 			}
-
+#endif
 			path = null;
 			data = null;
 			return false;
@@ -2144,10 +2144,11 @@ namespace UnityGLTF
 		// Parses Animation/Animator component and generate a glTF animation for the active clip
 		public void ExportAnimationFromNode(ref Transform transform, ref GLTF.Schema.GLTFAnimation anim)
 		{
+#if UNITY_EDITOR
 			Animator a = transform.GetComponent<Animator>();
 			if (a != null)
 			{
-				AnimationClip[] clips = AnimationUtility.GetAnimationClips(transform.gameObject);
+				AnimationClip[] clips = UnityEditor.AnimationUtility.GetAnimationClips(transform.gameObject);
 				for (int i = 0; i < clips.Length; i++)
 				{
 					//FIXME It seems not good to generate one animation per animator.
@@ -2158,13 +2159,14 @@ namespace UnityGLTF
 			UnityEngine.Animation animation = transform.GetComponent<UnityEngine.Animation>();
 			if (animation != null)
 			{
-				AnimationClip[] clips = AnimationUtility.GetAnimationClips(transform.gameObject);
+				AnimationClip[] clips = UnityEditor.AnimationUtility.GetAnimationClips(transform.gameObject);
 				for (int i = 0; i < clips.Length; i++)
 				{
 					//FIXME It seems not good to generate one animation per animator.
 					convertClipToGLTFAnimation(ref clips[i], ref transform, ref anim);
 				}
 			}
+#endif
 		}
 
 		private int getTargetIdFromTransform(ref Transform transform)
@@ -2305,9 +2307,10 @@ namespace UnityGLTF
 
 		private void CollectClipCurves(AnimationClip clip, ref Dictionary<string, TargetCurveSet> targetCurves)
 		{
+#if UNITY_EDITOR
 			foreach (var binding in UnityEditor.AnimationUtility.GetCurveBindings(clip))
 			{
-				AnimationCurve curve = AnimationUtility.GetEditorCurve(clip, binding);
+				AnimationCurve curve = UnityEditor.AnimationUtility.GetEditorCurve(clip, binding);
 
 				if (!targetCurves.ContainsKey(binding.path))
 				{
@@ -2360,6 +2363,7 @@ namespace UnityGLTF
 				}
 				targetCurves[binding.path] = current;
 			}
+#endif
 		}
 
 		private void GenerateMissingCurves(float endTime, ref Transform tr, ref Dictionary<string, TargetCurveSet> targetCurvesBinding)
