@@ -871,24 +871,40 @@ namespace UnityGLTF
 
 			AccessorId aPosition = null, aNormal = null, aTangent = null,
 				aTexcoord0 = null, aTexcoord1 = null, aColor0 = null;
-				
+			if (meshObj.uv.Length != 0)
+			{
+				Debug.Log("TEXCOORD_0");
+
+				aTexcoord0 = ExportAccessor(SchemaExtensions.FlipTexCoordArrayVAndCopy(meshObj.uv));
+			}
+			if (meshObj.uv2.Length != 0)
+			{
+				Debug.Log("TEXCOORD_1");
+
+				aTexcoord1 = ExportAccessor(SchemaExtensions.FlipTexCoordArrayVAndCopy(meshObj.uv2));
+			}
+			if (meshObj.normals.Length != 0)
+			{
+				Debug.Log("NORMALS");
+				aNormal = ExportAccessor(SchemaExtensions.ConvertVector3CoordinateSpaceAndCopy(meshObj.normals, SchemaExtensions.CoordinateSpaceConversionScale));
+			}
+			if (meshObj.tangents.Length != 0)
+			{
+				Debug.Log("TANGENTS");
+
+				aTangent = ExportAccessor(SchemaExtensions.ConvertVector4CoordinateSpaceAndCopy(meshObj.tangents, SchemaExtensions.TangentSpaceConversionScale));
+			}
+			Debug.Log("POSITION");
 			aPosition = ExportAccessor(SchemaExtensions.ConvertVector3CoordinateSpaceAndCopy(meshObj.vertices, SchemaExtensions.CoordinateSpaceConversionScale));
 
-			if (meshObj.normals.Length != 0)
-				aNormal = ExportAccessor(SchemaExtensions.ConvertVector3CoordinateSpaceAndCopy(meshObj.normals, SchemaExtensions.CoordinateSpaceConversionScale));
 
-			if (meshObj.tangents.Length != 0)
-				aTangent = ExportAccessor(SchemaExtensions.ConvertVector4CoordinateSpaceAndCopy(meshObj.tangents, SchemaExtensions.TangentSpaceConversionScale));
-
-			if (meshObj.uv.Length != 0)
-				aTexcoord0 = ExportAccessor(SchemaExtensions.FlipTexCoordArrayVAndCopy(meshObj.uv));
-
-			if (meshObj.uv2.Length != 0)
-				aTexcoord1 = ExportAccessor(SchemaExtensions.FlipTexCoordArrayVAndCopy(meshObj.uv2));
-
+			
 			if (meshObj.colors.Length != 0)
-				aColor0 = ExportAccessor(meshObj.colors);
+			{
+				Debug.Log("VERTEX COLORS");
 
+				aColor0 = ExportAccessor(meshObj.colors);
+			}
 			MaterialId lastMaterialId = null;
 
 			for (var submesh = 0; submesh < meshObj.subMeshCount; submesh++)
@@ -900,6 +916,8 @@ namespace UnityGLTF
 				if (topology == MeshTopology.Triangles) SchemaExtensions.FlipTriangleFaces(indices);
 
 				primitive.Mode = GetDrawMode(topology);
+
+				Debug.Log("INDICES");
 				primitive.Indices = ExportAccessor(indices, true);
 
 				primitive.Attributes = new Dictionary<string, AccessorId>();
@@ -1655,16 +1673,17 @@ namespace UnityGLTF
 			AlignToBoundary(_bufferWriter.BaseStream, 0x00);
 			uint byteOffset = CalculateAlignment((uint)_bufferWriter.BaseStream.Position, 4);
 
-			if (max <= byte.MaxValue && min >= byte.MinValue)
-			{
-				accessor.ComponentType = GLTFComponentType.UnsignedByte;
+			//if (max <= byte.MaxValue && min >= byte.MinValue)
+			//{
+			//	accessor.ComponentType = GLTFComponentType.UnsignedByte;
 
-				foreach (var v in arr)
-				{
-					_bufferWriter.Write((byte)v);
-				}
-			}
-			else if (max <= sbyte.MaxValue && min >= sbyte.MinValue && !isIndices)
+			//	foreach (var v in arr)
+			//	{
+			//		_bufferWriter.Write((byte)v);
+			//	}
+			//}
+			//else
+			if (max <= sbyte.MaxValue && min >= sbyte.MinValue && !isIndices)
 			{
 				accessor.ComponentType = GLTFComponentType.Byte;
 
@@ -2302,9 +2321,7 @@ namespace UnityGLTF
 					bool haveAnimation = positions != null || rotations != null || scales != null;
 
 					if(haveAnimation)
-					{ 
-						AccessorId timeAccessor = ExportAccessor(times);
-
+					{
 						// Translation
 						if(positions != null)
 						{ 
@@ -2319,8 +2336,12 @@ namespace UnityGLTF
 
 							Tchannel.Target = TchannelTarget;
 
+							Debug.Log("ANIMATION-DATA-TIME");
+							AccessorId TtimeAccessor = ExportAccessor(times);
+
 							AnimationSampler Tsampler = new AnimationSampler();
-							Tsampler.Input = timeAccessor;
+							Tsampler.Input = TtimeAccessor;
+							Debug.Log("ANIMATION-DATA-POSITION");
 							Tsampler.Output = ExportAccessor(SchemaExtensions.ConvertVector3CoordinateSpaceAndCopy(positions, SchemaExtensions.CoordinateSpaceConversionScale));
 							Tchannel.Sampler = new AnimationSamplerId
 							{
@@ -2346,9 +2367,11 @@ namespace UnityGLTF
 							};
 
 							Rchannel.Target = RchannelTarget;
-
+							Debug.Log("ANIMATION-DATA-TIME");
+							AccessorId RtimeAccessor = ExportAccessor(times);
 							AnimationSampler Rsampler = new AnimationSampler();
-							Rsampler.Input = timeAccessor; // Float, for time
+							Rsampler.Input = RtimeAccessor; // Float, for time
+							Debug.Log("ANIMATION-DATA-ROTATION");
 							Rsampler.Output = ExportAccessor(rotations, true); // Vec4 for
 							Rchannel.Sampler = new AnimationSamplerId
 							{
@@ -2374,9 +2397,11 @@ namespace UnityGLTF
 							};
 
 							Schannel.Target = SchannelTarget;
-
+							Debug.Log("ANIMATION-DATA-TIME");
+							AccessorId StimeAccessor = ExportAccessor(times);
 							AnimationSampler Ssampler = new AnimationSampler();
-							Ssampler.Input = timeAccessor; // Float, for time
+							Ssampler.Input = StimeAccessor; // Float, for time
+							Debug.Log("ANIMATION-DATA-SCALE");
 							Ssampler.Output = ExportAccessor(scales); // Vec3 for scale
 							Schannel.Sampler = new AnimationSamplerId
 							{
