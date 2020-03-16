@@ -556,8 +556,12 @@ namespace UnityGLTF
 			};
 		}
 
+		static int indent = 0;
 		private NodeId ExportNode(Transform nodeTransform)
 		{
+			string GetIndent() => "".PadLeft(indent, '-');
+
+			indent++;
 			var node = new Node();
 
 			if (ExportNames)
@@ -568,6 +572,7 @@ namespace UnityGLTF
 
 			if (nodeTransform.GetComponent<UnityEngine.Animation>() || nodeTransform.GetComponent<UnityEngine.Animator>())
 			{
+				Debug.Log(GetIndent() + "Node is an animation root: " + nodeTransform, nodeTransform);
 				_animatedNodes.Add(nodeTransform);
 			}
 			if (nodeTransform.GetComponent<SkinnedMeshRenderer>())
@@ -590,6 +595,7 @@ namespace UnityGLTF
 				Root = _root
 			};
 
+			Debug.Log(GetIndent() + "Node is animated: " + nodeTransform, nodeTransform);
 
 			// Register nodes for animation parsing (could be disabled is animation is disables)
 			_exportedTransforms.Add(nodeTransform.GetInstanceID(), _root.Nodes.Count);
@@ -606,6 +612,8 @@ namespace UnityGLTF
 				// associate unity meshes with gltf mesh id
 				foreach (var prim in primitives)
 				{
+					indent++;
+					Debug.Log(GetIndent() + "Exported Primitive: " + prim, prim);
 					var smr = prim.GetComponent<SkinnedMeshRenderer>();
 					if (smr != null)
 					{
@@ -617,6 +625,7 @@ namespace UnityGLTF
 						var renderer = prim.GetComponent<MeshRenderer>();
 						_primOwner[new PrimKey { Mesh = filter.sharedMesh, Material = renderer.sharedMaterial }] = node.Mesh;
 					}
+					indent--;
 				}
 			}
 
@@ -630,6 +639,7 @@ namespace UnityGLTF
 				}
 			}
 
+			indent--;
 			return id;
 		}
 
@@ -752,6 +762,7 @@ namespace UnityGLTF
 
 			for (int i = 0; i < _animatedNodes.Count; ++i)
 			{
+				Debug.Log("Exporting Animation for " + _animatedNodes[i], _animatedNodes[i]);
 				Transform t = _animatedNodes[i];
 				ExportAnimationFromNode(ref t, ref anim);
 			}
