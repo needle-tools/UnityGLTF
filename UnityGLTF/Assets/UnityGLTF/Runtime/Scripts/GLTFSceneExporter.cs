@@ -1529,7 +1529,7 @@ namespace UnityGLTF
 
 			if(!wasAbleToExportFromDisk)
 		    {
-				image.MimeType = "image/png";
+				image.MimeType = "image/jpeg";
 
 				// TODO we could make sure texture size is power-of-two here
 
@@ -1552,7 +1552,7 @@ namespace UnityGLTF
 				exportTexture.ReadPixels(new Rect(0, 0, destRenderTexture.width, destRenderTexture.height), 0, 0);
 				exportTexture.Apply();
 
-				var pngImageData = exportTexture.EncodeToPNG();
+				var pngImageData = exportTexture.EncodeToJPG();
 				_bufferWriter.Write(pngImageData);
 
 				RenderTexture.ReleaseTemporary(destRenderTexture);
