@@ -729,6 +729,11 @@ namespace UnityGLTF
 		{
 			var node = new Node();
 
+#if UNITY_EDITOR
+			var globalId = GlobalObjectId.GetGlobalObjectIdSlow(nodeTransform);
+			node.AddExtra("guid", globalId.ToString());
+#endif
+
 			if (ExportNames)
 			{
 				node.Name = nodeTransform.name;

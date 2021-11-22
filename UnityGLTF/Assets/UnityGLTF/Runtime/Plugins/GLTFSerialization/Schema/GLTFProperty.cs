@@ -123,6 +123,12 @@ namespace GLTF.Schema
 			Extensions.Add(extname, extension);
 		}
 
+		public void AddExtra(string key, string value)
+		{
+			if (Extras == null) Extras = new JObject();
+			Extras[key] = value;
+		}
+
 		private void SkipValue(JsonReader reader)
 		{
 			if (!reader.Read())
