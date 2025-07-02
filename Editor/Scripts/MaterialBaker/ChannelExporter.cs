@@ -112,6 +112,7 @@ namespace UnityGLTF
             Color emissionColor = Color.black;
             float metallicFactor = 0f;
             float roughnessFactor = 1f;
+            float occlusionStrength = 1f;
             
             if (maps.albedo != null || maps.alpha != null)
             {
@@ -168,6 +169,7 @@ namespace UnityGLTF
                 {
                     metallicFactor = metallicHasSingleValue ? metallicColorTex.r : 0;
                     roughnessFactor = smoothnessHasSingleValue ? (1f -  smoothnessColorTex.r) : 0f;
+                    occlusionStrength = occlusionHasSingleValue ? occlusionColorTex.r : 0f;
                 }
                 else
                 {
@@ -314,10 +316,10 @@ namespace UnityGLTF
             var mapper = new PBRGraphMap(newMaterial);
             
             // Ensure multiplicative defaults
-            mapper.MetallicFactor = metallicFactor;
-            mapper.RoughnessFactor = roughnessFactor;
+            mapper.MetallicFactor = hasOrm ? 1f : metallicFactor;
+            mapper.RoughnessFactor = hasOrm ? 1f : roughnessFactor;
             mapper.EmissiveFactor = emissionColor;
-            mapper.OcclusionTexStrength =  hasOrm ? 1f : 0f;
+            mapper.OcclusionTexStrength =  hasOrm ? 1f : occlusionStrength;
             mapper.BaseColorFactor = baseColor;
             mapper.NormalTexScale = 1;
             // Set desired UV channels – based on the space we baked into
