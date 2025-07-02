@@ -11,7 +11,7 @@ namespace UnityGLTF
     [RequireComponent(typeof(Renderer))]
     public class MaterialBakerComponent : MonoBehaviour
     {
-        [Tooltip("When exporting GLTF, export baked materials instead of original materials. Material Baker Export Plugin must be enabled in GLTF Export Settings.")]
+        [Tooltip("When exporting GLTF, export baked materials instead of original materials. Material Baker Export Plugin must be enabled in GLTF Export Settings.\nWhen this Renderer is not already baked, the plugin will be bake this on export")]
         public bool exportBakedMaterials = true;
         
         [Header("Baking Settings")]
@@ -21,10 +21,19 @@ namespace UnityGLTF
         [SerializeField, HideInInspector] private Material[] lastBakedMaterials = null;
         [SerializeField, HideInInspector] private Texture[] lastBakedTextures = null;
         [SerializeField, HideInInspector] private Material[] orgMaterials = null;
+        [SerializeField, HideInInspector] private MaterialBaker.BakeSettings lastBakeSettings = null;
 
         public bool HasBakedMaterials
         {
             get => lastBakedMaterials != null && lastBakedMaterials.Length > 0;
+        }
+        
+        public bool BakeSettingsChanged
+        {
+            get
+            {
+                return !BakeSettings.Equals(lastBakeSettings);
+            }
         }
         
         public bool OriginalMaterialActive
@@ -98,6 +107,7 @@ namespace UnityGLTF
             }
             lastBakedMaterials = bakedMaterials.ToArray();
             lastBakedTextures = bakedTextures.ToArray();
+            lastBakeSettings = BakeSettings;
             SwitchToBakedMaterial();
         }
 
@@ -134,12 +144,16 @@ namespace UnityGLTF
             {
                 DrawDefaultInspector();
                 var bakerComponent = (MaterialBakerComponent)target;
+
+                var requireRebake = bakerComponent.HasBakedMaterials && bakerComponent.BakeSettingsChanged;
                 
-                if (GUILayout.Button("Bake", GUILayout.Height(30f)))
+                GUI.color = requireRebake ? Color.yellow : (bakerComponent.HasBakedMaterials ? Color.white : Color.green);
+                if (GUILayout.Button(requireRebake ? "Rebake" : "Bake", GUILayout.Height(30f)))
                 {
                     var baker = bakerComponent;
                     baker.Bake();
                 }
+                GUI.color = Color.white;
 
                 if (bakerComponent.HasBakedMaterials)
                 {
@@ -172,6 +186,13 @@ namespace UnityGLTF
                     foldOutMaterials = EditorGUILayout.Foldout(foldOutMaterials, "Materials");
                     if (foldOutMaterials)
                     {
+                        // Display the last bake settings
+                        EditorGUILayout.LabelField("Last Bake Settings:");
+                        EditorGUI.indentLevel++;
+                        EditorGUILayout.LabelField("Bake Mode", bakerComponent.lastBakeSettings.bakeMode.ToString());
+                        EditorGUILayout.LabelField("Texture Resolution", $"{bakerComponent.lastBakeSettings.resolution.width}x{bakerComponent.lastBakeSettings.resolution.height}");
+                        EditorGUI.indentLevel--;
+                        GUILayout.Space(5);
                         // Get width of the editor window
                         var width = EditorGUIUtility.currentViewWidth;
                         var widthPerColumn = width / 3f;
