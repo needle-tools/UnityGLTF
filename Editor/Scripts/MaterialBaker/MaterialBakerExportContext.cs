@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using GLTF.Schema;
 using UnityEngine;
@@ -20,28 +21,51 @@ namespace UnityGLTF
         //     base.AfterMaterialExport(exporter, gltfRoot, material, materialNode);
         // }
 
+        private List<MaterialBakerComponent> switchBack = new List<MaterialBakerComponent>();
+        
         public MaterialBakerExportContext(ExportContext context)
         {
             _context = context;
         }
-        
+
         public override void BeforeSceneExport(GLTFSceneExporter exporter, GLTFRoot gltfRoot)
         {
-           var bakeComponents = exporter.RootTransforms.SelectMany(t => t.GetComponentsInChildren<MaterialBakerComponent>()).ToList();   
-           
-           foreach (var bakeComponent in bakeComponents)
-           {
-               var renderer = bakeComponent.GetComponent<Renderer>();
-               var maps = MaterialBaker.Bake(renderer, bakeComponent.BakeSettings);
+            var bakeComponents = exporter.RootTransforms.SelectMany(t =>
+                t.GetComponentsInChildren<MaterialBakerComponent>().Where(c => c.exportBakedMaterials)).ToList();
 
-               foreach (var map in maps)
-               {
-                   var newMaterial = ChannelExporter.SaveMaps(map, bakeComponent.BakeSettings.bakeMode == MaterialBaker.BakeMode.UV1 ? 1: 0);
-                   var materialId = exporter.ExportMaterial(newMaterial);
-                   
-               }
-               
-           }
+            int index = 0;
+            foreach (var bakeComponent in bakeComponents)
+            {
+                var renderer = bakeComponent.GetComponent<Renderer>();
+
+                if (!bakeComponent.OriginalMaterialActive)
+                    switchBack.Add(bakeComponent);
+
+                if (bakeComponent.BakeSettingsChanged || !bakeComponent.HasBakedMaterials)
+                {
+                    // Add unity progress bar
+#if UNITY_EDITOR
+                    UnityEditor.EditorUtility.DisplayProgressBar("Baking Materials",
+                        $"Baking materials for {renderer.name}", (float)(index++) / (float)bakeComponents.Count);
+#endif
+                    bakeComponent.Bake();
+
+#if UNITY_EDITOR
+                    UnityEditor.EditorUtility.ClearProgressBar();
+#endif
+                }
+                else
+                    bakeComponent.SwitchToBakedMaterial();
+            }
+
+        }
+
+        public override void AfterSceneExport(GLTFSceneExporter exporter, GLTFRoot gltfRoot)
+        {
+            foreach (var bakeComponent in switchBack)
+            {
+                bakeComponent.SwitchToOriginalMaterial();
+            }
         }
         
     }
