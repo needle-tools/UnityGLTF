@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 using Object = UnityEngine.Object;
@@ -53,29 +54,157 @@ namespace UnityGLTF
             public Material forMaterial;
             public Mesh forMesh;
 
-            public (int width, int height) GetTextureSize()
+            public TextureResolution GetTextureSize()
             {
                 if (albedo != null)
-                    return (albedo.map.width, albedo.map.height);
+                    return new TextureResolution(albedo.map.width, albedo.map.height);
                 if (alpha != null)
-                    return (alpha.map.width, alpha.map.height);
+                    return new TextureResolution(alpha.map.width, alpha.map.height);
                 if (metallic != null)
-                    return (metallic.map.width, metallic.map.height);
+                    return new TextureResolution(metallic.map.width, metallic.map.height);
                 if (normal != null)
-                    return (normal.map.width, normal.map.height);
+                    return new TextureResolution(normal.map.width, normal.map.height);
                 if (occlusion != null)
-                    return (occlusion.map.width, occlusion.map.height);
+                    return new TextureResolution(occlusion.map.width, occlusion.map.height);
                 if (emission != null)
-                    return (emission.map.width, emission.map.height);
+                    return new TextureResolution(emission.map.width, emission.map.height);
                 if (smoothness != null)
-                    return (smoothness.map.width, smoothness.map.height);
+                    return new TextureResolution(smoothness.map.width, smoothness.map.height);
                 if (specular != null)
-                    return (specular.map.width, specular.map.height);
+                    return new TextureResolution(specular.map.width, specular.map.height);
                 if (mask != null)
-                    return (mask.map.width, mask.map.height);
+                    return new TextureResolution(mask.map.width, mask.map.height);
                 
-                return (0, 0);
+                return new TextureResolution(0, 0);
             }
+        }
+        
+        [Serializable]
+        public struct TextureResolution
+        {
+            public int width;
+            public int height;
+
+            public TextureResolution(int width, int height)
+            {
+                this.width = width;
+                this.height = height;
+            }
+            
+#if UNITY_EDITOR
+            
+            [CustomPropertyDrawer(typeof(TextureResolution))]
+            public class TextureResolutionDrawer : PropertyDrawer
+            {
+                private static int[] ResolutionOptions = new int[]
+                {
+                    16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192
+                };
+                
+                public override void OnGUI(Rect position, SerializedProperty property, GUIContent label)
+                {
+                    var widthProp = property.FindPropertyRelative("width");
+                    var heightProp = property.FindPropertyRelative("height");
+                    
+                    // Draw Label
+                    EditorGUI.PrefixLabel(position, label);
+                    
+                    EditorGUI.BeginProperty(position, label, property);
+
+                    var propWidth = (position.width - EditorGUIUtility.labelWidth) / 2 - 40;
+                    
+                    if (EditorGUI.DropdownButton(new Rect(position.x + EditorGUIUtility.labelWidth, position.y, propWidth, position.height), new GUIContent(widthProp.intValue.ToString()), FocusType.Keyboard))
+                    {
+                        var menu = new GenericMenu();
+                        foreach (var res in ResolutionOptions)
+                        {
+                            menu.AddItem(new GUIContent(res.ToString()), widthProp.intValue == res, () =>
+                            {
+                                widthProp.intValue = res;
+                                property.serializedObject.ApplyModifiedProperties();
+                            });
+                        }
+                        menu.ShowAsContext();
+                    }
+                    if (EditorGUI.DropdownButton(new Rect(position.x + EditorGUIUtility.labelWidth  + propWidth + 2, position.y, propWidth, position.height), new GUIContent(heightProp.intValue.ToString()), FocusType.Keyboard))
+                    {
+                        var menu = new GenericMenu();
+                        foreach (var res in ResolutionOptions)
+                        {
+                            menu.AddItem(new GUIContent(res.ToString()), heightProp.intValue == res, () =>
+                            {
+                                heightProp.intValue = res;
+                                property.serializedObject.ApplyModifiedProperties();
+                            });
+                        }
+                        menu.ShowAsContext();
+                    }
+                    
+                    if (GUI.Button(new Rect(position.width - 30 , position.y, 30, position.height), new GUIContent("▢", "Select a squared resolution.")))
+                    {
+                        var menu = new GenericMenu();
+                        foreach (var res in ResolutionOptions)
+                        {
+                            menu.AddItem(new GUIContent(res + " x "+res), widthProp.intValue == res && heightProp.intValue == res, () =>
+                            {
+                                heightProp.intValue = res;
+                                widthProp.intValue = res;
+                                property.serializedObject.ApplyModifiedProperties();
+                            });
+                        }
+                        menu.ShowAsContext();
+                    }
+                    EditorGUI.EndProperty();
+                }
+            }
+#endif
+        }
+        
+        public enum BakeMode
+        {
+            TextureSpace,
+            UV0,
+            UV1,
+        }
+        
+        public class BakeSettings
+        {
+            public BakeMode bakeMode = BakeMode.TextureSpace;
+            public TextureResolution resolution = new TextureResolution(1024, 1024);
+        }
+
+        public static PbrMaps[] Bake(Renderer renderer, BakeSettings settings)
+        {
+            var pbrMaps = new List<PbrMaps>();
+            PbrMaps newPbrMaps = null;
+            switch (settings.bakeMode)
+            {
+                case BakeMode.TextureSpace:
+                    newPbrMaps = BakePBRMaterial(renderer.sharedMaterial, settings.resolution.width, settings.resolution.height);
+                    if (newPbrMaps != null)
+                        pbrMaps.Add(newPbrMaps);
+                    break;
+                case BakeMode.UV0:
+                    for (int i = 0; i < renderer.sharedMaterials.Length; i++)
+                    {
+                        newPbrMaps = BakePBRMaterial(renderer, i, settings.resolution.width, settings.resolution.height, 0);
+                        if (newPbrMaps != null)
+                            pbrMaps.Add(newPbrMaps);
+                    }
+                    break;
+                case BakeMode.UV1:
+                    for (int i = 0; i < renderer.sharedMaterials.Length; i++)
+                    {
+                        newPbrMaps = BakePBRMaterial(renderer, i, settings.resolution.width, settings.resolution.height, 1);
+                        if (newPbrMaps != null)
+                            pbrMaps.Add(newPbrMaps);
+                    }
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException();
+            }
+
+            return pbrMaps.ToArray();
         }
 
         private static void DilateMap(Texture source, RenderTexture target, Color backgroundColor)
