@@ -110,7 +110,7 @@ namespace UnityGLTF
             lastBakeSettings = BakeSettings;
             SwitchToBakedMaterial();
         }
-
+        
         public void SwitchToBakedMaterial()
         {
             if (lastBakedMaterials == null)
