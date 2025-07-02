@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using UnityEditor;
+using UnityEditor.Rendering;
 using UnityEditor.ShaderGraph;
 using UnityEngine;
 
@@ -126,7 +127,23 @@ namespace UnityGLTF
                 var sourcePath = AssetDatabase.GetAssetPath(shader);
                 File.WriteAllText(sourcePath + ".txt", shaderSource);
             }
-            return ShaderUtil.CreateShaderAsset(null, shaderSource, true);
+            
+            var shaderAsset = ShaderUtil.CreateShaderAsset(null, shaderSource, true);
+            
+            // Check for errors
+            var errors = ShaderUtil.GetShaderMessages(shaderAsset);
+            if (errors != null && errors.Length > 0)
+            {
+                foreach (var error in errors)
+                {
+                    if (error.severity == ShaderCompilerMessageSeverity.Warning)
+                        Debug.LogWarning($"Shader {shader.name} has warning: {error}");
+                    else if (error.severity == ShaderCompilerMessageSeverity.Error)
+                        Debug.LogError($"Shader {shader.name} has error: {error}");
+                }
+            }
+            
+            return shaderAsset;
         }
         
         public static string GetShaderSource(Shader shader)

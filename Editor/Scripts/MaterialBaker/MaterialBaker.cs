@@ -216,9 +216,12 @@ namespace UnityGLTF
             switch (settings.bakeMode)
             {
                 case BakeMode.TextureSpace:
-                    newPbrMaps = BakePBRMaterial(renderer.sharedMaterial, settings.resolution.width, settings.resolution.height);
-                    if (newPbrMaps != null)
-                        pbrMaps.Add(newPbrMaps);
+                    for (int i = 0; i < renderer.sharedMaterials.Length; i++)
+                    {
+                        newPbrMaps = BakePBRMaterial(renderer, i, settings.resolution.width, settings.resolution.height);
+                        if (newPbrMaps != null)
+                            pbrMaps.Add(newPbrMaps);
+                    }
                     break;
                 case BakeMode.UV0:
                     for (int i = 0; i < renderer.sharedMaterials.Length; i++)
@@ -266,7 +269,7 @@ namespace UnityGLTF
             pbrMaps.forMaterial = material;
 #if HAVE_URP
             BakeUrpMaterialModeToTexture(material, DebugMaterialMode.SpriteMask, width, height, out pbrMaps.mask);
-            var mask = pbrMaps.mask.map;
+            var mask = pbrMaps.mask?.map;
             BakeUrpMaterialModeToTexture(material, DebugMaterialMode.Albedo, width, height, out pbrMaps.albedo, mask);
             BakeUrpMaterialModeToTexture(material, DebugMaterialMode.Alpha, width, height, out pbrMaps.alpha, mask);
             BakeUrpMaterialModeToTexture(material, DebugMaterialMode.Metallic, width, height, out pbrMaps.metallic, mask);
