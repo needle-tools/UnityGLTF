@@ -53,7 +53,7 @@ namespace UnityGLTF
             }
         }
 
-        private static void SaveMaps(MaterialBaker.PbrMaps maps, int uvChannel = 0, bool useTextureSpace = true)
+        public static Material SaveMaps(MaterialBaker.PbrMaps maps, int uvChannel = 0, bool useTextureSpace = true)
         {
             var material = maps.forMaterial;
             var mesh = maps.forMesh;
@@ -66,7 +66,7 @@ namespace UnityGLTF
             if (string.IsNullOrEmpty(directory))
             {
                 Debug.LogError("No directory found for the material.");
-                return;
+                return null;
             }
 
             var targetDirectory = "";
@@ -442,6 +442,7 @@ namespace UnityGLTF
                 AssetDatabase.CreateAsset(newMaterial, materialPath);
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
+            return newMaterial;
         }
 
         [MenuItem("CONTEXT/MeshRenderer/UnityGLTF/Switch to converted material")]
