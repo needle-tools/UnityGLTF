@@ -212,19 +212,20 @@ namespace UnityGLTF
         public static PbrMaps[] Bake(Renderer renderer, BakeSettings settings)
         {
             var pbrMaps = new List<PbrMaps>();
+            var sharedMaterials = renderer.sharedMaterials;
             PbrMaps newPbrMaps = null;
             switch (settings.bakeMode)
             {
                 case BakeMode.TextureSpace:
-                    for (int i = 0; i < renderer.sharedMaterials.Length; i++)
+                    for (var i = 0; i < sharedMaterials.Length; i++)
                     {
-                        newPbrMaps = BakePBRMaterial(renderer, i, settings.resolution.width, settings.resolution.height);
+                        newPbrMaps = BakePBRMaterial(sharedMaterials[i], settings.resolution.width, settings.resolution.height);
                         if (newPbrMaps != null)
                             pbrMaps.Add(newPbrMaps);
                     }
                     break;
                 case BakeMode.UV0:
-                    for (int i = 0; i < renderer.sharedMaterials.Length; i++)
+                    for (var i = 0; i < sharedMaterials.Length; i++)
                     {
                         newPbrMaps = BakePBRMaterial(renderer, i, settings.resolution.width, settings.resolution.height, 0);
                         if (newPbrMaps != null)
@@ -232,7 +233,7 @@ namespace UnityGLTF
                     }
                     break;
                 case BakeMode.UV1:
-                    for (int i = 0; i < renderer.sharedMaterials.Length; i++)
+                    for (var i = 0; i < sharedMaterials.Length; i++)
                     {
                         newPbrMaps = BakePBRMaterial(renderer, i, settings.resolution.width, settings.resolution.height, 1);
                         if (newPbrMaps != null)

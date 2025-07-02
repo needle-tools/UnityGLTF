@@ -26,12 +26,15 @@ namespace UnityGLTF
             var uvChannelName = $"texCoord{uvChannel}";
             
             var mode = Mode.WorldSpace;
+
+            var enableConservativeRasterization = true;
+            var enablePatching = true;
             
             // Add  Pass - Conservative mode
             string passString = "Pass\n{";
             int addedConservativeToPasses = 0;
             int passIndex = 0;
-            while (true)
+            while (enableConservativeRasterization && SystemInfo.supportsConservativeRaster && true)
             {
                 passIndex = shaderSource.IndexOf(passString, passIndex + 1, StringComparison.Ordinal);
                 if (passIndex == -1)
@@ -43,7 +46,7 @@ namespace UnityGLTF
             Debug.Log($"<color=#808080ff>Shader {shader.name}: found {addedConservativeToPasses} passes to patch for >Conservative True<.</color>");
 
             
-            while (true)
+            while (enablePatching && true)
             {
                 lastIndex = index;
                 index = shaderSource.IndexOf("PackedVaryings PackVaryings (Varyings input)", lastIndex + 1, StringComparison.Ordinal);
@@ -125,7 +128,7 @@ namespace UnityGLTF
             {
                 // For debugging, output the shader source to a file
                 var sourcePath = AssetDatabase.GetAssetPath(shader);
-                File.WriteAllText(sourcePath + ".txt", shaderSource);
+                File.WriteAllText(sourcePath + "_debug.shader", shaderSource);
             }
             
             var shaderAsset = ShaderUtil.CreateShaderAsset(null, shaderSource, true);
