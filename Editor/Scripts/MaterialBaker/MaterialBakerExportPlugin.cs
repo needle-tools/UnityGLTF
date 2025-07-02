@@ -11,7 +11,7 @@ namespace UnityGLTF
         
         public override string Description
         {
-            get => "";
+            get => "Bakes all materials from Renderers, which has a MaterialBaker component on it.";
         }
 
         public override bool EnabledByDefault { get; } = false;
