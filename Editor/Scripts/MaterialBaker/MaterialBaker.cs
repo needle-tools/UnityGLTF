@@ -80,7 +80,7 @@ namespace UnityGLTF
         }
         
         [Serializable]
-        public struct TextureResolution
+        public struct TextureResolution : IEquatable<TextureResolution>
         {
             public int width;
             public int height;
@@ -158,6 +158,20 @@ namespace UnityGLTF
                 }
             }
 #endif
+            public bool Equals(TextureResolution other)
+            {
+                return width == other.width && height == other.height;
+            }
+
+            public override bool Equals(object obj)
+            {
+                return obj is TextureResolution other && Equals(other);
+            }
+
+            public override int GetHashCode()
+            {
+                return HashCode.Combine(width, height);
+            }
         }
         
         public enum BakeMode
@@ -167,10 +181,32 @@ namespace UnityGLTF
             UV1,
         }
         
-        public class BakeSettings
+        [Serializable]
+        public class BakeSettings : IEquatable<BakeSettings>
         {
             public BakeMode bakeMode = BakeMode.TextureSpace;
             public TextureResolution resolution = new TextureResolution(1024, 1024);
+
+
+            public bool Equals(BakeSettings other)
+            {
+                if (other is null) return false;
+                if (ReferenceEquals(this, other)) return true;
+                return bakeMode == other.bakeMode && resolution.Equals(other.resolution);
+            }
+
+            public override bool Equals(object obj)
+            {
+                if (obj is null) return false;
+                if (ReferenceEquals(this, obj)) return true;
+                if (obj.GetType() != GetType()) return false;
+                return Equals((BakeSettings)obj);
+            }
+
+            public override int GetHashCode()
+            {
+                return HashCode.Combine((int)bakeMode, resolution);
+            }
         }
 
         public static PbrMaps[] Bake(Renderer renderer, BakeSettings settings)
