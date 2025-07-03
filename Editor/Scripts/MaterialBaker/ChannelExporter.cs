@@ -242,27 +242,39 @@ namespace UnityGLTF
 
                     if (isHdr)
                     {
+                        // Normalize the emission values to the highest value
                         for (int i = 0; i < emissionPixels.Length; i++)
                         {
-                            var l = emissionPixels[i] / highestValue;
-                            emissionPixels[i] = l;
                             var a = emissionPixels[i].a;
-                            emissionPixels[i] /= highestValue;
-                            emissionPixels[i] = emissionPixels[i].gamma;
-                            emissionPixels[i].a = a; // preserve alpha
-                            
-                            // emissionPixels[i] = emissionPixels[i].gamma;
-                            // emissionPixels[i].r /= heighestValue;
-                            // emissionPixels[i].g /= heighestValue;
-                            // emissionPixels[i].b /= heighestValue;
+                            var l = emissionPixels[i] / highestValue;
+                            l = l.gamma;
+                            l.a = a; // preserve alpha
+                            if (l.r < 0) l.r = 0;
+                            if (l.g < 0) l.g = 0;
+                            if (l.b < 0) l.b = 0;
+                            emissionPixels[i] = l;
                         }
                         
                         maps.emission.map.SetPixels(emissionPixels);
-                        emissionColor = Color.white * Mathf.Pow(2, highestValue);
+                        emissionColor = Color.white * highestValue;
                     }
                     else
+                    {
                         emissionColor = Color.white;
-                    
+                        for (int i = 0; i < emissionPixels.Length; i++)
+                        {
+                            var a = emissionPixels[i].a;
+                            var l = emissionPixels[i];
+                            l = l.gamma;
+                            l.a = a; // preserve alpha
+                            if (l.r < 0) l.r = 0;
+                            if (l.g < 0) l.g = 0;
+                            if (l.b < 0) l.b = 0;
+                            emissionPixels[i] = l;
+                        }
+                        maps.emission.map.SetPixels(emissionPixels);
+                    }
+
                     var emission = maps.emission.map.EncodeToPNG();
                     File.WriteAllBytes(emissionPath, emission);
                     hasEmission = true; 
