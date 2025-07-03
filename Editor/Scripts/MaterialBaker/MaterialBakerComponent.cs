@@ -37,8 +37,43 @@ namespace UnityGLTF
                 return r.sharedMaterials.SequenceEqual(orgMaterials);
             }
         }
-        
 
+        private bool HasRendererNewMaterials()
+        {
+            if (lastBakedMaterials == null)
+                return false;
+            
+            var r = GetComponent<Renderer>();
+            var cntOrgMaterials = orgMaterials?.Length ?? 0;
+            var cntSharedMaterials = r.sharedMaterials?.Length ?? 0;
+            var cntBakedMaterials = lastBakedMaterials?.Length ?? 0;
+
+            if (cntSharedMaterials != cntOrgMaterials && cntSharedMaterials != cntBakedMaterials)
+                return true;
+            
+            if (cntSharedMaterials == cntOrgMaterials && r.sharedMaterials != null)
+            {
+                if (r.sharedMaterials.SequenceEqual(orgMaterials))
+                    return false;
+            }
+
+            if (cntSharedMaterials == cntBakedMaterials && r.sharedMaterials != null)
+            {
+                if (r.sharedMaterials.SequenceEqual(lastBakedMaterials))
+                    return false;
+            }
+
+            return true;
+        }
+
+        private void CheckRendererMaterials()
+        {
+            if (HasRendererNewMaterials())
+            {
+                DestroyLastBakedMaterials();
+            } 
+        }
+        
 #if UNITY_EDITOR
         public void DestroyLastBakedMaterials()
         {
@@ -131,6 +166,9 @@ namespace UnityGLTF
                 DrawDefaultInspector();
                 var bakerComponent = (MaterialBakerComponent)target;
 
+                if (bakerComponent.HasRendererNewMaterials())
+                    EditorApplication.delayCall += bakerComponent.DestroyLastBakedMaterials; 
+                
                 var requireRebake = bakerComponent.HasBakedMaterials && bakerComponent.BakeSettingsChanged;
                 
                 GUI.color = requireRebake ? Color.yellow : (bakerComponent.HasBakedMaterials ? Color.white : Color.green);
