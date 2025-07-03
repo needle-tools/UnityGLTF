@@ -112,7 +112,6 @@ namespace UnityGLTF
             Color emissionColor = Color.black;
             float metallicFactor = 0f;
             float roughnessFactor = 1f;
-            float occlusionStrength = 1f;
             
             if (maps.albedo != null || maps.alpha != null)
             {
@@ -207,12 +206,9 @@ namespace UnityGLTF
 
             if (maps.normal != null)
             {
-                if (!MaterialBaker.TextureHasSingleValue(maps.normal.map, out _, maps.mask?.map))
-                {
-                    var normal = maps.normal.map.EncodeToPNG();
-                    File.WriteAllBytes(normalPath, normal);
-                    hasNormal = true;
-                }
+                var normal = maps.normal.map.EncodeToPNG();
+                File.WriteAllBytes(normalPath, normal);
+                hasNormal = true;
             }
 
             if (maps.emission != null)

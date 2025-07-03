@@ -5,6 +5,7 @@ Shader "TextureBake/Dilate"
     Properties
     {
         _MainTex ("Texture", 2D) = "white" {}
+        _MaskTex ("Mask", 2D) = "black" {}
         _BackgroundColor ("BackgroundColor", Color) = (0,0,0,0)
     }
     SubShader
@@ -21,9 +22,11 @@ Shader "TextureBake/Dilate"
             #include "UnityCG.cginc"
             
             sampler2D _MainTex;
+            sampler2D _MaskTex;
             float4 _MainTex_TexelSize;
             float4 _MainTex_ST;
             float4 _BackgroundColor;
+            
             
             struct appdata
             {
@@ -52,10 +55,14 @@ Shader "TextureBake/Dilate"
             {
                 float2 delta = _MainTex_TexelSize;
                 float4 closestColor = _BackgroundColor;
-                float maxBright = 0;
+                float maxBright = 0.001;
                 for (float i = -3; i < 3; i++) {
                     for(float j = -3; j < 3; j++) {
-                        float4 neighborCol = clamp(tex2D(_MainTex, uv + float2(i, j) * delta),0,1);
+                        float2 uv2 = uv + float2(i, j) * delta;
+                        // clamp UV to prevent out of bounds access
+                        uv2 = clamp(uv2, 0.0, 1.0);
+                        uv2 += delta;
+                        float4 neighborCol = tex2D(_MainTex, uv2);
                         float brightness = distance(neighborCol.rgb, _BackgroundColor.rgb);
                         if(brightness > maxBright){
                             closestColor = neighborCol;
@@ -69,7 +76,10 @@ Shader "TextureBake/Dilate"
             fixed4 frag (v2f i) : SV_Target
             {
                fixed4 col = tex2D(_MainTex, i.uv);
-               if(distance(col.rgb, _BackgroundColor.rgb) < 0.001) {
+               fixed4 mask = tex2D(_MaskTex, i.uv);
+                
+               if (mask.r < 0.001 && distance(col.rgb, _BackgroundColor.rgb) < 0.001)
+               {
                   col = dilate(i.uv);
                 } 
                 return col;
