@@ -700,6 +700,20 @@ namespace UnityGLTF
             
             Shader.DisableKeyword(ShaderKeywordStrings.DEBUG_DISPLAY);
 
+            if (mode == DebugMaterialMode.NormalTangentSpace)
+            {
+                if (TextureHasSingleValue(bakedTexture, out var normColor, mask))
+                {
+                    if (ColorProximity(normColor, new Color(0.5f, 0.5f, 1f, 1f), 0.01f))
+                    {
+                        Object.DestroyImmediate(bakedTexture);
+                        baked = null;
+                        return;
+                    }
+                }
+                baked = new TextureWithTransform(bakedTexture);
+                return;
+            }
             if (IsTextureEmpty(bakedTexture, mask))
             {
                 Object.DestroyImmediate(bakedTexture);
