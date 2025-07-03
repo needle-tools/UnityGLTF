@@ -247,7 +247,7 @@ namespace UnityGLTF
             return pbrMaps.ToArray();
         }
 
-        private static void DilateMap(Texture source, RenderTexture target, Color backgroundColor)
+        private static void DilateMap(Texture source, RenderTexture target, Color backgroundColor, Texture mask)
         {
             if (!_dilateMaterial)
             {
@@ -261,6 +261,7 @@ namespace UnityGLTF
             }
             _dilateMaterial.SetColor("_BackgroundColor", backgroundColor);
             _dilateMaterial.SetTexture("_MainTex", source);
+            _dilateMaterial.SetTexture("_MaskTex", mask);
             Graphics.Blit(source, target, _dilateMaterial);
         }
         
@@ -365,6 +366,7 @@ namespace UnityGLTF
             cmd.SetRenderTarget(rt);
 
             Color backgroundColor = Color.black;
+            bool doDilate = true;
             switch (mode)
             {
                 case DebugMaterialMode.NormalTangentSpace:
@@ -372,6 +374,7 @@ namespace UnityGLTF
                     break;
                 case DebugMaterialMode.SpriteMask:
                     backgroundColor = Color.clear;
+                    doDilate = false;
                     break;
             }
             cmd.ClearRenderTarget(true, true, backgroundColor);
@@ -450,12 +453,26 @@ namespace UnityGLTF
             // cmd.DisableKeyword(new GlobalKeyword(ShaderKeywordStrings.DEBUG_DISPLAY));
             // Graphics.ExecuteCommandBuffer(cmd);
             //
-            
-            var dilateRt = RenderTexture.GetTemporary(width, height, 0, useHdr ? RenderTextureFormat.DefaultHDR : RenderTextureFormat.ARGB32, isLinear ? RenderTextureReadWrite.Linear : RenderTextureReadWrite.sRGB);
 
-            DilateMap(rt, dilateRt, backgroundColor);
+            RenderTexture dilateRt = null;
+            if (doDilate)
+            {
+                dilateRt = RenderTexture.GetTemporary(width, height, 0,
+                    useHdr ? RenderTextureFormat.DefaultHDR : RenderTextureFormat.ARGB32,
+                    isLinear ? RenderTextureReadWrite.Linear : RenderTextureReadWrite.sRGB);
+                dilateRt.antiAliasing = 1;
+                dilateRt.wrapMode = TextureWrapMode.Repeat;
+                dilateRt.filterMode = FilterMode.Point;
+                rt.wrapMode = TextureWrapMode.Clamp;
+                rt.filterMode = FilterMode.Point;
+
+                DilateMap(rt, dilateRt, backgroundColor, mask);
+
+                RenderTexture.active = dilateRt;
+            }
+            else
+                RenderTexture.active = rt;
             
-            RenderTexture.active = dilateRt;
             // if (mode == DebugMaterialMode.Emission)
             //     isLinear = false;
             
@@ -471,11 +488,24 @@ namespace UnityGLTF
             bakedTexture.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
       
             RenderTexture.active = null;
-            RenderTexture.ReleaseTemporary(dilateRt);
+            if (dilateRt != null)
+                RenderTexture.ReleaseTemporary(dilateRt);
             RenderTexture.ReleaseTemporary(rt);
             
             Shader.DisableKeyword(ShaderKeywordStrings.DEBUG_DISPLAY);
 
+            if (mode == DebugMaterialMode.NormalTangentSpace)
+            {
+                if (TextureHasSingleValue(bakedTexture, out var normColor, mask))
+                {
+                    if (ColorProximity(normColor, backgroundColor, 0.01f))
+                    {
+                        return null;
+                    }
+                }
+
+            }
+            else
             if (IsTextureEmpty(bakedTexture, mask))
             {
                 Object.DestroyImmediate(bakedTexture);
@@ -485,6 +515,14 @@ namespace UnityGLTF
             return new TextureWithTransform(bakedTexture, offset, scale);
         }
 #endif
+        
+        private static bool ColorProximity(Color a, Color b, float threshold = 0.001f)
+        {
+            return Mathf.Abs(a.r - b.r) < threshold &&
+                   Mathf.Abs(a.g - b.g) < threshold &&
+                   Mathf.Abs(a.b - b.b) < threshold &&
+                   Mathf.Abs(a.a - b.a) < threshold;
+        }
         
         public static bool TextureHasSingleValue(Texture2D texture, out Color singleValue, Texture2D mask = null)
         {
@@ -503,15 +541,13 @@ namespace UnityGLTF
                 if (maskData != null && maskData[i] == Color.black)
                     continue; // skip masked pixels
                 
-                if (lastColor.HasValue && pixelData[i] != lastColor.Value)
+                if (lastColor.HasValue && !ColorProximity(pixelData[i], lastColor.Value))
                 {
                     singleValue = Color.clear;
                     return false; // found different color
                 }
-                else
-                {
-                    lastColor = pixelData[i];
-                }
+   
+                lastColor = pixelData[i];
                 
             }
             if (lastColor == null)
@@ -529,13 +565,14 @@ namespace UnityGLTF
             var pixelData = texture.GetPixelData<Color32>(0);
             var maskData = mask?.GetPixels();
 
+            float proximityThreshold = 0.001f; // threshold for color proximity check
             bool hasData = false;
             for (int i = 0; i < pixelData.Length; i++)
             {
                 if (maskData != null && maskData[i] == Color.black)
                     continue; // skip masked pixels
 
-                hasData |= (!ignoreAlpha && pixelData[i].a != 0) || pixelData[i].r != 0 || pixelData[i].g != 0 || pixelData[i].b != 0;
+                hasData |= (!ignoreAlpha && pixelData[i].a > proximityThreshold) || pixelData[i].r > proximityThreshold || pixelData[i].g > proximityThreshold || pixelData[i].b > proximityThreshold;
                 if (hasData)
                     break;
             }
@@ -567,6 +604,7 @@ namespace UnityGLTF
             bool isLinear = false;
             switch (mode)
             {
+                case DebugMaterialMode.Emission:
                 case DebugMaterialMode.Alpha:
                 case DebugMaterialMode.Smoothness:
                 case DebugMaterialMode.AmbientOcclusion:
@@ -587,8 +625,8 @@ namespace UnityGLTF
             {
                 case DebugMaterialMode.Albedo:
                 case DebugMaterialMode.Alpha:
-                case DebugMaterialMode.SpriteMask:
                     return true;
+                case DebugMaterialMode.SpriteMask:
                 case DebugMaterialMode.Specular:
                 case DebugMaterialMode.Smoothness:
                 case DebugMaterialMode.AmbientOcclusion:
