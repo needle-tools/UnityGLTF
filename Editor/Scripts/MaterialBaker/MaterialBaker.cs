@@ -460,6 +460,7 @@ namespace UnityGLTF
             //     isLinear = false;
             
             var bakedTexture = new Texture2D(width, height, useHdr ? TextureFormat.RGBAFloat : TextureFormat.RGB24, false, isLinear);
+            bakedTexture.name = $"Baked {mode}";
             bakedTexture.wrapMode = TextureWrapMode.Repeat;
             bakedTexture.filterMode = FilterMode.Bilinear;
             bakedTexture.anisoLevel = 1;
@@ -639,6 +640,7 @@ namespace UnityGLTF
             DeactivateGlobalUrpDebugProperties();
             
             var bakedTexture = new Texture2D(textureWidth, textureHeight, TextureFormat.RGB24, false, isLinear);
+            bakedTexture.name = $"Baked {mode}";
             bakedTexture.wrapMode = TextureWrapMode.Repeat;
             bakedTexture.filterMode = FilterMode.Bilinear;
             bakedTexture.anisoLevel = 1;

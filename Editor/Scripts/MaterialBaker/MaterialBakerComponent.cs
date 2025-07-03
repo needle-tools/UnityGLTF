@@ -23,34 +23,20 @@ namespace UnityGLTF
         [SerializeField, HideInInspector] private Material[] orgMaterials = null;
         [SerializeField, HideInInspector] private MaterialBaker.BakeSettings lastBakeSettings = null;
 
-        public bool HasBakedMaterials
-        {
-            get => lastBakedMaterials != null && lastBakedMaterials.Length > 0;
-        }
-        
-        public bool BakeSettingsChanged
-        {
-            get
-            {
-                return !BakeSettings.Equals(lastBakeSettings);
-            }
-        }
-        
+        public bool HasBakedMaterials => lastBakedMaterials != null && lastBakedMaterials.Length > 0;
+        public bool BakeSettingsChanged => !BakeSettings.Equals(lastBakeSettings);
+        public MaterialBaker.BakeSettings BakeSettings => new MaterialBaker.BakeSettings { resolution = resolution, bakeMode = bakeMode };
+
         public bool OriginalMaterialActive
         {
             get
             {
-                if (orgMaterials == null)
-                    return true;
-                var renderer = GetComponent<Renderer>();
-                return renderer.sharedMaterials.SequenceEqual(orgMaterials);
+                if (orgMaterials == null) return true;
+                var r = GetComponent<Renderer>();
+                return r.sharedMaterials.SequenceEqual(orgMaterials);
             }
         }
         
-        public MaterialBaker.BakeSettings BakeSettings
-        {
-            get => new MaterialBaker.BakeSettings { resolution = resolution, bakeMode = bakeMode };
-        }
 
 #if UNITY_EDITOR
         public void DestroyLastBakedMaterials()
@@ -88,10 +74,10 @@ namespace UnityGLTF
         {
             DestroyLastBakedMaterials();
             
-            var renderer = GetComponent<Renderer>();
-            orgMaterials = renderer.sharedMaterials;
+            var r = GetComponent<Renderer>();
+            orgMaterials = r.sharedMaterials;
             
-            var maps = MaterialBaker.Bake(renderer, BakeSettings);
+            var maps = MaterialBaker.Bake(r, BakeSettings);
 
             var bakedMaterials = new List<Material>();
             var bakedTextures = new List<Texture>();
@@ -115,9 +101,8 @@ namespace UnityGLTF
         {
             if (lastBakedMaterials == null)
                 return;
-            var renderer = GetComponent<Renderer>();
-     
-            renderer.sharedMaterials = lastBakedMaterials;
+            var r = GetComponent<Renderer>();
+            r.sharedMaterials = lastBakedMaterials;
         }
         
         public void SwitchToOriginalMaterial()
@@ -128,8 +113,8 @@ namespace UnityGLTF
             if (lastBakedMaterials == null || lastBakedMaterials.Length == 0)
                 return;
             
-            var renderer = GetComponent<Renderer>();
-            renderer.sharedMaterials = orgMaterials;
+            var r = GetComponent<Renderer>();
+            r.sharedMaterials = orgMaterials;
         }
 #endif
         

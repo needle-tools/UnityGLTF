@@ -117,6 +117,7 @@ namespace UnityGLTF
             if (maps.albedo != null || maps.alpha != null)
             {
                 var mergedAlbedoAndAlpha = new Texture2D(textureSize.width, textureSize.height, TextureFormat.RGBA32, false);
+                mergedAlbedoAndAlpha.name = "Merged Albedo and Alpha";
 
                 Color[] pixels =  maps.albedo?.map.GetPixels();
                 Color[] alphaPixels = maps.alpha?.map.GetPixels();
@@ -164,6 +165,7 @@ namespace UnityGLTF
             if (maps.metallic != null || maps.occlusion != null || maps.smoothness != null)
             {
                 var orm = new Texture2D(textureSize.width, textureSize.height, TextureFormat.RGBA32, false, true);
+                orm.name = "Occlusion Roughness Metallic";
           
                 metallicHasSingleValue = MaterialBaker.TextureHasSingleValue(maps.metallic?.map, out var metallicColorTex, maps.mask?.map);
                 smoothnessHasSingleValue = MaterialBaker.TextureHasSingleValue(maps.smoothness?.map, out var smoothnessColorTex, maps.mask?.map);
@@ -223,13 +225,13 @@ namespace UnityGLTF
                 {
                     var emissionPixels = maps.emission.map.GetPixels();
                     bool isHdr = false;
-                    float heighestValue = 0f;
+                    float highestValue = 0f;
                     for (int i = 0; i < emissionPixels.Length; i++)
                     {
                         var linear = emissionPixels[i].linear; 
-                        if (linear.r > heighestValue) heighestValue = linear.r;
-                        if (linear.g > heighestValue) heighestValue = linear.g;
-                        if (linear.b > heighestValue) heighestValue = linear.b;
+                        if (linear.r > highestValue) highestValue = linear.r;
+                        if (linear.g > highestValue) highestValue = linear.g;
+                        if (linear.b > highestValue) highestValue = linear.b;
                         
                         if (emissionPixels[i].r > 1f || emissionPixels[i].g > 1f || emissionPixels[i].b > 1f)
                         {
@@ -242,10 +244,10 @@ namespace UnityGLTF
                     {
                         for (int i = 0; i < emissionPixels.Length; i++)
                         {
-                            var l = emissionPixels[i].linear / heighestValue;
+                            var l = emissionPixels[i].linear / highestValue;
                             emissionPixels[i] = l.gamma;
                             
-                            emissionPixels[i] /= heighestValue;
+                            emissionPixels[i] /= highestValue;
                          //   emissionPixels[i] = emissionPixels[i].gamma;
                             // emissionPixels[i].r /= heighestValue;
                             // emissionPixels[i].g /= heighestValue;
@@ -253,7 +255,7 @@ namespace UnityGLTF
                         }
                         
                         maps.emission.map.SetPixels(emissionPixels);
-                        emissionColor = (Color.white * heighestValue).gamma;
+                        emissionColor = (Color.white * highestValue).gamma;
                     }
                     else
                         emissionColor = Color.white;
