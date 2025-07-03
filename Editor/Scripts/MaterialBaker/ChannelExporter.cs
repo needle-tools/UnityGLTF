@@ -190,9 +190,9 @@ namespace UnityGLTF
                     var ormPixels = new Color[length];
                     for (var i = 0; i < length; i++)
                     {
-                        var metallicValue = metallicSingleValueOrEmpty ? 0 : metallicPixels?[i].r ?? 0f;
+                        var metallicValue = metallicSingleValueOrEmpty ? 1 : metallicPixels?[i].r ?? 0f;
                         var occlusionValue = occlusionSingleValueOrEmpty ? 0 : occlusionPixels?[i].r ?? 0f;
-                        var smoothnessValue = smoothnessSingleValueOrEmpty ? 0 : smoothnessPixels?[i].r ?? 0f;
+                        var smoothnessValue = smoothnessSingleValueOrEmpty ? 1 : smoothnessPixels?[i].r ?? 0f;
                         ormPixels[i] = new Color(occlusionValue, 1 - smoothnessValue, metallicValue);
                     }
 
