@@ -160,6 +160,9 @@ namespace UnityGLTF
             bool metallicSingleValueOrEmpty = true;
             bool smoothnessSingleValueOrEmpty = true;
             bool occlusionSingleValueOrEmpty = true;
+
+            metallicFactor = 0f;
+            roughnessFactor = 1f;
             
             if (maps.metallic != null || maps.occlusion != null || maps.smoothness != null)
             {
@@ -174,13 +177,9 @@ namespace UnityGLTF
                 smoothnessSingleValueOrEmpty = maps.smoothness == null || smoothnessHasSingleValue;
                 occlusionSingleValueOrEmpty = maps.occlusion == null || (occlusionHasSingleValue && occlusionColorTex == Color.white);
 
-                if (metallicHasSingleValue)
-                    metallicFactor = metallicHasSingleValue ? metallicColorTex.r : 0;
-
-                if (smoothnessSingleValueOrEmpty)
-                    roughnessFactor = smoothnessHasSingleValue ? (1f -  smoothnessColorTex.r) : 0f;
-
-                if (!occlusionSingleValueOrEmpty || !metallicSingleValueOrEmpty || !smoothnessSingleValueOrEmpty)
+                bool createOrmTexture = !occlusionSingleValueOrEmpty || !metallicSingleValueOrEmpty || !smoothnessSingleValueOrEmpty;
+                
+                if (createOrmTexture)
                 {
                     var metallicPixels = maps.metallic?.map.GetPixels();
                     var occlusionPixels = maps.occlusion?.map.GetPixels();
@@ -190,12 +189,22 @@ namespace UnityGLTF
                     var ormPixels = new Color[length];
                     for (var i = 0; i < length; i++)
                     {
-                        var metallicValue = metallicSingleValueOrEmpty ? 1 : metallicPixels?[i].r ?? 0f;
+                        var metallicValue = metallicSingleValueOrEmpty ? 1 : metallicPixels?[i].r ?? 1f;
                         var occlusionValue = occlusionSingleValueOrEmpty ? 0 : occlusionPixels?[i].r ?? 0f;
-                        var smoothnessValue = smoothnessSingleValueOrEmpty ? 1 : smoothnessPixels?[i].r ?? 0f;
+                        var smoothnessValue = smoothnessSingleValueOrEmpty ? 1 : smoothnessPixels?[i].r ?? 1f;
                         ormPixels[i] = new Color(occlusionValue, 1 - smoothnessValue, metallicValue);
                     }
 
+                    if (metallicHasSingleValue)
+                        metallicFactor = metallicColorTex.r;
+                    else if (maps.metallic != null)
+                         metallicFactor = 1f;
+                    
+                    if (smoothnessHasSingleValue)
+                        roughnessFactor = (1f - smoothnessColorTex.r);
+                    else if (maps.smoothness != null)
+                        roughnessFactor = 1f;
+                    
                     orm.SetPixels(ormPixels);
 
                     var ormTexture = orm.EncodeToPNG();
@@ -338,9 +347,9 @@ namespace UnityGLTF
 
             var mapper = new PBRGraphMap(newMaterial);
             
-            // Ensure multiplicative defaults
-            mapper.MetallicFactor = hasOrm ? 1f : metallicFactor;
-            mapper.RoughnessFactor = hasOrm ? 1f : roughnessFactor;
+            // Ensure multiplicative defaults#
+            mapper.MetallicFactor = metallicFactor;
+            mapper.RoughnessFactor = roughnessFactor;
             mapper.EmissiveFactor = emissionColor;
             mapper.OcclusionTexStrength = 1f;
             mapper.BaseColorFactor = baseColor;
