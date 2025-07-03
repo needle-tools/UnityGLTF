@@ -24,7 +24,7 @@ namespace UnityGLTF
             {
                 var renderer = bakeComponent.GetComponent<Renderer>();
 
-                if (!bakeComponent.OriginalMaterialActive)
+                if (bakeComponent.OriginalMaterialActive)
                     switchBack.Add(bakeComponent);
 
                 if (bakeComponent.BakeSettingsChanged || !bakeComponent.HasBakedMaterials)
