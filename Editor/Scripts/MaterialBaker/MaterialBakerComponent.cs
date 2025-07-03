@@ -135,7 +135,7 @@ namespace UnityGLTF
         
         public void SwitchToBakedMaterial()
         {
-            if (lastBakedMaterials == null)
+            if (lastBakedMaterials == null || lastBakedMaterials.Length == 0)
                 return;
             var r = GetComponent<Renderer>();
             r.sharedMaterials = lastBakedMaterials;
@@ -143,7 +143,7 @@ namespace UnityGLTF
         
         public void SwitchToOriginalMaterial()
         {
-            if (orgMaterials == null)
+            if (orgMaterials == null || orgMaterials.Length == 0)
                 return;
             
             if (lastBakedMaterials == null || lastBakedMaterials.Length == 0)
@@ -155,7 +155,7 @@ namespace UnityGLTF
 #endif
         
 #if UNITY_EDITOR
-        
+        [CanEditMultipleObjects]
         [CustomEditor(typeof(MaterialBakerComponent))]
         public class Inspector : UnityEditor.Editor
         {
@@ -164,37 +164,58 @@ namespace UnityGLTF
             public override void OnInspectorGUI()
             {
                 DrawDefaultInspector();
-                var bakerComponent = (MaterialBakerComponent)target;
 
-                if (bakerComponent.HasRendererNewMaterials())
-                    EditorApplication.delayCall += bakerComponent.DestroyLastBakedMaterials; 
+                var anyRequiresRebake = false;
+                var anyHasBakedMaterials = false;
+
+                var bakers = targets.Select(x => x as MaterialBakerComponent).ToList();
                 
-                var requireRebake = bakerComponent.HasBakedMaterials && bakerComponent.BakeSettingsChanged;
-                
-                GUI.color = requireRebake ? Color.yellow : (bakerComponent.HasBakedMaterials ? Color.white : Color.green);
-                if (GUILayout.Button(requireRebake ? "Rebake" : "Bake", GUILayout.Height(30f)))
+                foreach (var baker in bakers)
                 {
-                    var baker = bakerComponent;
-                    baker.Bake();
+                    if (baker.HasRendererNewMaterials())
+                        EditorApplication.delayCall += baker.DestroyLastBakedMaterials;
+                    
+                    var requireRebake = baker.HasBakedMaterials && baker.BakeSettingsChanged;
+                    anyRequiresRebake |= requireRebake;
+                    anyHasBakedMaterials |= baker.HasBakedMaterials;
+                }
+                
+                GUI.color = anyRequiresRebake ? Color.yellow : (anyHasBakedMaterials ? Color.white : Color.green);
+                if (GUILayout.Button(anyRequiresRebake ? "Rebake" : "Bake", GUILayout.Height(30f)))
+                {
+                    foreach (var target in targets)
+                    {
+                        var baker = target as MaterialBakerComponent;
+                        baker?.Bake();
+                    }
                 }
                 GUI.color = Color.white;
 
-                if (bakerComponent.HasBakedMaterials)
+                if (anyHasBakedMaterials)
                 {
                     GUILayout.Space(10f);
                     EditorGUILayout.BeginHorizontal();
                     GUILayout.Label("Switching:");
-                    bool originalActive = bakerComponent.OriginalMaterialActive;
+                    var anyOriginalActive = bakers
+                        .Where(x => x.HasBakedMaterials)
+                        .Any(b => b.OriginalMaterialActive);
                     
-                    GUI.color = originalActive ? Color.green : Color.white;
+                    GUI.color = anyOriginalActive ? Color.green : Color.white;
                     if (GUILayout.Button("Original Materials"))
                     {
-                        bakerComponent.SwitchToOriginalMaterial();
+                        foreach (var baker in bakers)
+                            baker.SwitchToOriginalMaterial();
                     }
-                    GUI.color = !originalActive ? Color.green : Color.white;
+                    GUI.color = !anyOriginalActive ? Color.green : Color.white;
                     if (GUILayout.Button("Baked Materials"))
                     {
-                        bakerComponent.SwitchToBakedMaterial();
+                        foreach (var baker in bakers)
+                        {
+                            if (!baker.HasBakedMaterials)
+                                baker.Bake();
+                            else
+                                baker.SwitchToBakedMaterial();
+                        }
                     }
                     GUI.color = Color.white;
 
@@ -203,12 +224,13 @@ namespace UnityGLTF
                     GUILayout.Space(10f);
                     if (GUILayout.Button("Destroy Last Baked Materials"))
                     {
-                        bakerComponent.DestroyLastBakedMaterials();
+                        foreach (var baker in bakers)
+                            baker.DestroyLastBakedMaterials();
                     }
                     
                     GUILayout.Space(10f);
                     foldOutMaterials = EditorGUILayout.Foldout(foldOutMaterials, "Materials");
-                    if (foldOutMaterials)
+                    if (foldOutMaterials && targets.Length == 1 && target is MaterialBakerComponent bakerComponent)
                     {
                         // Display the last bake settings
                         EditorGUILayout.LabelField("Last Bake Settings:");
@@ -268,20 +290,14 @@ namespace UnityGLTF
                         }
                         else
                         {
-                            GUILayout.Label("No org. materials found.");
+                            GUILayout.Label("No orig. materials found.");
                         }
                         
                         GUILayout.EndHorizontal();
-
                     }
-                    
                 }
-                
             }
         }
-        
-        
-        
 #endif
     }
 }
