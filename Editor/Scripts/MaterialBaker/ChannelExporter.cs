@@ -78,7 +78,7 @@ namespace UnityGLTF
             {
                 var meshPath = AssetDatabase.GetAssetPath(mesh);
                 var meshGuid = AssetDatabase.AssetPathToGUID(meshPath);
-                var meshName = $"{mesh.name}";
+                var meshName = $"{mesh.name}-{meshGuid}";
                 var directoryForMesh = Path.Combine(directoryForMaterial, meshName);
                 if (!Directory.Exists(directoryForMesh))
                     Directory.CreateDirectory(directoryForMesh);
