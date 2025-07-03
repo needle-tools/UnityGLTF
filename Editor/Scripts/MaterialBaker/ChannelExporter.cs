@@ -228,7 +228,7 @@ namespace UnityGLTF
                     float highestValue = 0f;
                     for (int i = 0; i < emissionPixels.Length; i++)
                     {
-                        var linear = emissionPixels[i].linear; 
+                        var linear = emissionPixels[i];
                         if (linear.r > highestValue) highestValue = linear.r;
                         if (linear.g > highestValue) highestValue = linear.g;
                         if (linear.b > highestValue) highestValue = linear.b;
@@ -244,18 +244,21 @@ namespace UnityGLTF
                     {
                         for (int i = 0; i < emissionPixels.Length; i++)
                         {
-                            var l = emissionPixels[i].linear / highestValue;
-                            emissionPixels[i] = l.gamma;
-                            
+                            var l = emissionPixels[i] / highestValue;
+                            emissionPixels[i] = l;
+                            var a = emissionPixels[i].a;
                             emissionPixels[i] /= highestValue;
-                         //   emissionPixels[i] = emissionPixels[i].gamma;
+                            emissionPixels[i] = emissionPixels[i].gamma;
+                            emissionPixels[i].a = a; // preserve alpha
+                            
+                            // emissionPixels[i] = emissionPixels[i].gamma;
                             // emissionPixels[i].r /= heighestValue;
                             // emissionPixels[i].g /= heighestValue;
                             // emissionPixels[i].b /= heighestValue;
                         }
                         
                         maps.emission.map.SetPixels(emissionPixels);
-                        emissionColor = (Color.white * highestValue).gamma;
+                        emissionColor = Color.white * Mathf.Pow(2, highestValue);
                     }
                     else
                         emissionColor = Color.white;
