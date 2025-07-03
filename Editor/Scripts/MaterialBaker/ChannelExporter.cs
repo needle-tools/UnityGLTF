@@ -297,6 +297,7 @@ namespace UnityGLTF
                 var baseColorImporter = AssetImporter.GetAtPath(baseColorPath) as TextureImporter;
                 baseColorImporter.textureType = TextureImporterType.Default;
                 baseColorImporter.SaveAndReimport();
+                baseColorImporter.textureCompression = TextureImporterCompression.Uncompressed;
                 var importedBaseColor = AssetDatabase.LoadAssetAtPath<Texture2D>(baseColorPath);
                 newMaterial.SetTexture("baseColorTexture", importedBaseColor);
             }
@@ -307,6 +308,7 @@ namespace UnityGLTF
             {
                 var normalImporter = AssetImporter.GetAtPath(normalPath) as TextureImporter;
                 normalImporter.textureType = TextureImporterType.NormalMap;
+                normalImporter.textureCompression = TextureImporterCompression.Uncompressed;
                 normalImporter.SaveAndReimport();
                 var importedNormal = AssetDatabase.LoadAssetAtPath<Texture2D>(normalPath);
                 newMaterial.SetTexture("normalTexture", importedNormal);
@@ -319,6 +321,7 @@ namespace UnityGLTF
                 var emissionImporter = AssetImporter.GetAtPath(emissionPath) as TextureImporter;
                 emissionImporter.textureType = TextureImporterType.Default;
                 emissionImporter.sRGBTexture = true;
+                emissionImporter.textureCompression = TextureImporterCompression.Uncompressed;
                 emissionImporter.SaveAndReimport();
                 var importedEmission = AssetDatabase.LoadAssetAtPath<Texture2D>(emissionPath);
                 newMaterial.SetTexture("emissiveTexture", importedEmission);
@@ -331,6 +334,7 @@ namespace UnityGLTF
                 var ormImporter = AssetImporter.GetAtPath(ormPath) as TextureImporter;
                 ormImporter.textureType = TextureImporterType.Default;
                 ormImporter.sRGBTexture = false;
+                ormImporter.textureCompression = TextureImporterCompression.Uncompressed;
                 ormImporter.SaveAndReimport();
                 var importedOrm = AssetDatabase.LoadAssetAtPath<Texture2D>(ormPath);
                 if (!metallicSingleValueOrEmpty || !smoothnessSingleValueOrEmpty)
