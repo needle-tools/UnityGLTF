@@ -153,25 +153,33 @@ namespace UnityGLTF
                 }
             }
 
+            bool metallicHasSingleValue = true;
+            bool smoothnessHasSingleValue = true;
+            bool occlusionHasSingleValue = true;
+            
+            bool metallicSingleValueOrEmpty = true;
+            bool smoothnessSingleValueOrEmpty = true;
+            bool occlusionSingleValueOrEmpty = true;
+            
             if (maps.metallic != null || maps.occlusion != null || maps.smoothness != null)
             {
                 var orm = new Texture2D(textureSize.width, textureSize.height, TextureFormat.RGBA32, false, true);
           
-                bool metallicHasSingleValue = MaterialBaker.TextureHasSingleValue(maps.metallic?.map, out var metallicColorTex, maps.mask?.map);
-                bool smoothnessHasSingleValue = MaterialBaker.TextureHasSingleValue(maps.smoothness?.map, out var smoothnessColorTex, maps.mask?.map);
-                bool occlusionHasSingleValue = MaterialBaker.TextureHasSingleValue(maps.occlusion?.map, out var occlusionColorTex, maps.mask?.map);
+                metallicHasSingleValue = MaterialBaker.TextureHasSingleValue(maps.metallic?.map, out var metallicColorTex, maps.mask?.map);
+                smoothnessHasSingleValue = MaterialBaker.TextureHasSingleValue(maps.smoothness?.map, out var smoothnessColorTex, maps.mask?.map);
+                occlusionHasSingleValue = MaterialBaker.TextureHasSingleValue(maps.occlusion?.map, out var occlusionColorTex, maps.mask?.map);
 
-                bool metallicSingleValueOrEmpty = maps.metallic == null || metallicHasSingleValue;
-                bool smoothnessSingleValueOrEmpty = maps.smoothness == null || smoothnessHasSingleValue;
-                bool occlusionSingleValueOrEmpty = maps.occlusion == null || (occlusionHasSingleValue && occlusionColorTex == Color.white);
-                
-                if (occlusionSingleValueOrEmpty && metallicSingleValueOrEmpty && smoothnessSingleValueOrEmpty)
-                {
+                metallicSingleValueOrEmpty = maps.metallic == null || metallicHasSingleValue;
+                smoothnessSingleValueOrEmpty = maps.smoothness == null || smoothnessHasSingleValue;
+                occlusionSingleValueOrEmpty = maps.occlusion == null || (occlusionHasSingleValue && occlusionColorTex == Color.white);
+
+                if (metallicHasSingleValue)
                     metallicFactor = metallicHasSingleValue ? metallicColorTex.r : 0;
+
+                if (smoothnessSingleValueOrEmpty)
                     roughnessFactor = smoothnessHasSingleValue ? (1f -  smoothnessColorTex.r) : 0f;
-                    occlusionStrength = occlusionHasSingleValue ? occlusionColorTex.r : 0f;
-                }
-                else
+
+                if (!occlusionSingleValueOrEmpty || !metallicSingleValueOrEmpty || !smoothnessSingleValueOrEmpty)
                 {
                     var metallicPixels = maps.metallic?.map.GetPixels();
                     var occlusionPixels = maps.occlusion?.map.GetPixels();
@@ -181,9 +189,9 @@ namespace UnityGLTF
                     var ormPixels = new Color[length];
                     for (var i = 0; i < length; i++)
                     {
-                        var metallicValue = metallicPixels?[i].r ?? 0f;
-                        var occlusionValue = occlusionPixels?[i].r ?? 0f;
-                        var smoothnessValue = smoothnessPixels?[i].r ?? 0f;
+                        var metallicValue = metallicSingleValueOrEmpty ? 0 : metallicPixels?[i].r ?? 0f;
+                        var occlusionValue = occlusionSingleValueOrEmpty ? 0 : occlusionPixels?[i].r ?? 0f;
+                        var smoothnessValue = smoothnessSingleValueOrEmpty ? 0 : smoothnessPixels?[i].r ?? 0f;
                         ormPixels[i] = new Color(occlusionValue, 1 - smoothnessValue, metallicValue);
                     }
 
@@ -303,8 +311,10 @@ namespace UnityGLTF
                 ormImporter.sRGBTexture = false;
                 ormImporter.SaveAndReimport();
                 var importedOrm = AssetDatabase.LoadAssetAtPath<Texture2D>(ormPath);
-                newMaterial.SetTexture("metallicRoughnessTexture", importedOrm);
-                newMaterial.SetTexture("occlusionTexture", importedOrm);
+                if (!metallicSingleValueOrEmpty || !smoothnessSingleValueOrEmpty)
+                    newMaterial.SetTexture("metallicRoughnessTexture", importedOrm);
+                if (!occlusionSingleValueOrEmpty)
+                    newMaterial.SetTexture("occlusionTexture", importedOrm);
             }
             else
             {
@@ -319,7 +329,7 @@ namespace UnityGLTF
             mapper.MetallicFactor = hasOrm ? 1f : metallicFactor;
             mapper.RoughnessFactor = hasOrm ? 1f : roughnessFactor;
             mapper.EmissiveFactor = emissionColor;
-            mapper.OcclusionTexStrength =  hasOrm ? 1f : occlusionStrength;
+            mapper.OcclusionTexStrength = 1f;
             mapper.BaseColorFactor = baseColor;
             mapper.NormalTexScale = 1;
             // Set desired UV channels – based on the space we baked into
