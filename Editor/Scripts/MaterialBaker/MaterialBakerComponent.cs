@@ -128,7 +128,7 @@ namespace UnityGLTF
                 bakedTextures.AddRange( textureProperties.Select(newMaterial.GetTexture).Where(t => t != null));
             }
             lastBakedMaterials = bakedMaterials.ToArray();
-            lastBakedTextures = bakedTextures.ToArray();
+            lastBakedTextures = bakedTextures.Distinct().ToArray();
             lastBakeSettings = BakeSettings;
             SwitchToBakedMaterial();
         }
