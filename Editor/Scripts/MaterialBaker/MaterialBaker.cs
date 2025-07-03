@@ -441,7 +441,7 @@ namespace UnityGLTF
             }
             
             cmd.SetViewProjectionMatrices(Matrix4x4.identity, Matrix4x4.Ortho(minMaxX.x, minMaxX.y, minMaxY.x, minMaxY.y, -1, 1));
-            cmd.EnableKeyword(new GlobalKeyword(ShaderKeywordStrings.DEBUG_DISPLAY));
+            cmd.EnableShaderKeyword(ShaderKeywordStrings.DEBUG_DISPLAY);
             cmd.SetGlobalFloat("_DebugMaterialMode", (int) mode);
             cmd.DrawMesh(mesh, Matrix4x4.identity, material, submesh, 0);
           
