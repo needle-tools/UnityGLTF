@@ -483,6 +483,7 @@ namespace UnityGLTF
             
             return new TextureWithTransform(bakedTexture, offset, scale);
         }
+#endif
         
         public static bool TextureHasSingleValue(Texture2D texture, out Color singleValue, Texture2D mask = null)
         {
@@ -522,7 +523,6 @@ namespace UnityGLTF
 
             return true;
         }
-
         private static bool IsTextureEmpty(Texture2D texture, bool ignoreAlpha = true, Texture2D mask = null)
         {
             var pixelData = texture.GetPixelData<Color32>(0);
@@ -541,7 +541,7 @@ namespace UnityGLTF
 
             return !hasData;
         }
-        
+#if HAVE_URP
         private static void DeactivateGlobalUrpDebugProperties()
         {
             // See DebugHandler.cs in URP package
