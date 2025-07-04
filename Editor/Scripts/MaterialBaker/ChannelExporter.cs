@@ -19,7 +19,7 @@ namespace UnityGLTF
             var materials = renderer.sharedMaterials;
             for (var i = 0; i < materials.Length; i++)
             {
-                var maps = MaterialBaker.BakePBRMaterial(renderer, i, 2048, 2048);
+                var maps = MaterialBaker.BakePBRMaterial(renderer, i, new TextureResolution(2048, 2048));
                 maps.forMaterial = materials[i];
                 SaveMaps(maps, 0, false);
             }
@@ -34,7 +34,7 @@ namespace UnityGLTF
             var materials = renderer.sharedMaterials;
             for (var i = 0; i < materials.Length; i++)
             {
-                var maps = MaterialBaker.BakePBRMaterial(renderer, i, 2048, 2048, 1);
+                var maps = MaterialBaker.BakePBRMaterial(renderer, i, new TextureResolution(2048, 2048), 1);
                 SaveMaps(maps, 1, false);
             }
         }
@@ -48,12 +48,12 @@ namespace UnityGLTF
             var materials = renderer.sharedMaterials;
             foreach (var material in materials)
             {
-                var maps = MaterialBaker.BakePBRMaterial(material, 2048, 2048);
+                var maps = MaterialBaker.BakePBRMaterial(material, new TextureResolution(2048, 2048));
                 SaveMaps(maps);
             }
         }
 
-        public static Material SaveMaps(MaterialBaker.PbrMaps maps, int uvChannel = 0, bool useTextureSpace = true)
+        public static Material SaveMaps(PbrMaps maps, int uvChannel = 0, bool useTextureSpace = true)
         {
             var material = maps.forMaterial;
             var mesh = maps.forMesh;
@@ -140,7 +140,7 @@ namespace UnityGLTF
                 
                 mergedAlbedoAndAlpha.SetPixels(pixels);
 
-                if (MaterialBaker.TextureHasSingleValue(mergedAlbedoAndAlpha, out var singleBaseColorTex, maps.mask?.map))
+                if (BakeHelpers.TextureHasSingleValue(mergedAlbedoAndAlpha, out var singleBaseColorTex, maps.mask?.map))
                 {
                     baseColor = singleBaseColorTex;
                     Object.DestroyImmediate(mergedAlbedoAndAlpha);
@@ -169,9 +169,9 @@ namespace UnityGLTF
                 var orm = new Texture2D(textureSize.width, textureSize.height, TextureFormat.RGBA32, false, true);
                 orm.name = "Occlusion Roughness Metallic";
           
-                metallicHasSingleValue = MaterialBaker.TextureHasSingleValue(maps.metallic?.map, out var metallicColorTex, maps.mask?.map);
-                smoothnessHasSingleValue = MaterialBaker.TextureHasSingleValue(maps.smoothness?.map, out var smoothnessColorTex, maps.mask?.map);
-                occlusionHasSingleValue = MaterialBaker.TextureHasSingleValue(maps.occlusion?.map, out var occlusionColorTex, maps.mask?.map);
+                metallicHasSingleValue = BakeHelpers.TextureHasSingleValue(maps.metallic?.map, out var metallicColorTex, maps.mask?.map);
+                smoothnessHasSingleValue = BakeHelpers.TextureHasSingleValue(maps.smoothness?.map, out var smoothnessColorTex, maps.mask?.map);
+                occlusionHasSingleValue = BakeHelpers.TextureHasSingleValue(maps.occlusion?.map, out var occlusionColorTex, maps.mask?.map);
 
                 metallicSingleValueOrEmpty = maps.metallic == null || metallicHasSingleValue;
                 smoothnessSingleValueOrEmpty = maps.smoothness == null || smoothnessHasSingleValue;
@@ -222,7 +222,7 @@ namespace UnityGLTF
 
             if (maps.emission != null)
             {
-                if (MaterialBaker.TextureHasSingleValue(maps.emission.map, out var emissionColorTex, maps.mask?.map))
+                if (BakeHelpers.TextureHasSingleValue(maps.emission.map, out var emissionColorTex, maps.mask?.map))
                 {
                     emissionColor = emissionColorTex;
                 }
@@ -422,7 +422,7 @@ namespace UnityGLTF
                 mapper.EmissiveXScale = Vector2.one;
             }
             
-            if (hasOrm && !maps.occlusion.hasDefaultTransform)
+            if (hasOrm && maps.occlusion != null && !maps.occlusion.hasDefaultTransform)
             {
                 mapper.OcclusionXOffset = maps.occlusion.offset;
                 mapper.OcclusionXScale = maps.occlusion.scale;
