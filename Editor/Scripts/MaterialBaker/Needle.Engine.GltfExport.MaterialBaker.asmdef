@@ -8,7 +8,8 @@
         "GUID:be0903cd8e1546f498710afdc59db5eb",
         "GUID:40f39bff7bc9be34182ebe488fcf8228",
         "GUID:6086ce97fb14496588b8986d1f5d770f",
-        "GUID:831354f145a84cc88b9bfaf0e0e34fd8"
+        "GUID:831354f145a84cc88b9bfaf0e0e34fd8",
+        "GUID:78bd2ddd6e276394a9615c203e574844"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -27,6 +28,11 @@
             "name": "com.needle.engine-exporter",
             "expression": "",
             "define": "HAVE_NEEDLE"
+        },
+        {
+            "name": "com.unity.render-pipelines.high-definition",
+            "expression": "",
+            "define": "HAVE_HDRP"
         }
     ],
     "noEngineReferences": false

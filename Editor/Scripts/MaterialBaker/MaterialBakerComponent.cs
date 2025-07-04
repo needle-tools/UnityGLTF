@@ -16,17 +16,17 @@ namespace UnityGLTF
         public bool exportBakedMaterials = true;
         
         [Header("Baking Settings")]
-        public MaterialBaker.BakeMode bakeMode = MaterialBaker.BakeMode.TextureSpace;
-        public MaterialBaker.TextureResolution resolution = new MaterialBaker.TextureResolution(1024, 1024);
+        public BakeMode bakeMode = BakeMode.TextureSpace;
+        public TextureResolution resolution = new TextureResolution(1024, 1024);
 
         [SerializeField, HideInInspector] private Material[] lastBakedMaterials = null;
         [SerializeField, HideInInspector] private Texture[] lastBakedTextures = null;
         [SerializeField, HideInInspector] private Material[] orgMaterials = null;
-        [SerializeField, HideInInspector] private MaterialBaker.BakeSettings lastBakeSettings = null;
+        [SerializeField, HideInInspector] private BakeSettings lastBakeSettings = null;
 
         public bool HasBakedMaterials => lastBakedMaterials != null && lastBakedMaterials.Length > 0;
         public bool BakeSettingsChanged => !BakeSettings.Equals(lastBakeSettings);
-        public MaterialBaker.BakeSettings BakeSettings => new MaterialBaker.BakeSettings { resolution = resolution, bakeMode = bakeMode };
+        public BakeSettings BakeSettings => new BakeSettings { resolution = resolution, bakeMode = bakeMode };
 
         public bool OriginalMaterialActive
         {
@@ -120,7 +120,7 @@ namespace UnityGLTF
             
             foreach (var map in maps)
             {
-                var newMaterial = ChannelExporter.SaveMaps(map, bakeMode == MaterialBaker.BakeMode.UV1 ? 1 : 0);
+                var newMaterial = ChannelExporter.SaveMaps(map, bakeMode == BakeMode.UV1 ? 1 : 0);
                 bakedMaterials.Add(newMaterial);
 
                 var textureProperties = newMaterial.GetTexturePropertyNames();
