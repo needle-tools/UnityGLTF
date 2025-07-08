@@ -224,7 +224,8 @@ namespace UnityGLTF
             cmd.SetViewProjectionMatrices(Matrix4x4.identity, Matrix4x4.Ortho(minMaxX.x, minMaxX.y, minMaxY.x, minMaxY.y, -1, 1));
             cmd.EnableShaderKeyword(DEBUG_DISPLAY);
             cmd.SetGlobalFloat("_DebugMaterialMode", (int) mode.ToRPSpecific());
-            cmd.DrawMesh(mesh, Matrix4x4.identity, material, submesh, 0);
+            var forwardPassIndex = FindForwardPassIndex(material);
+            cmd.DrawMesh(mesh, Matrix4x4.identity, material, submesh, forwardPassIndex);
             GL.sRGBWrite = !isLinear;
             Graphics.ExecuteCommandBuffer(cmd);
             
@@ -294,6 +295,20 @@ namespace UnityGLTF
             return false;
         }
         
+        private static int FindForwardPassIndex(Material material)
+        {
+            var index = material.FindPass("Forward");
+            if (index == -1)
+                index = material.FindPass("ForwardLit");
+
+            if (index == -1)
+            {
+                Debug.LogWarning($"Material {material.name} does not have a Forward pass.");
+                return -1;
+            }
+            return index;
+        }
+        
         private static void BakeTextureSpace(Material mat, MaterialMode mode, TextureResolution resolution, out TextureWithTransform baked, Texture2D mask = null)
         {
             bool isLinear = BakeHelpers.IsDebugMaterialModeInLinear(mode);
@@ -312,7 +327,8 @@ namespace UnityGLTF
             
             // Render mesh with bakeMat to bakedTexture
             var renderTexture = BakeHelpers.CreateRenderTextureForMode(mode, resolution);
-            Graphics.Blit(bakedTexture, renderTexture, material, 0);
+            var forwardPassIndex = FindForwardPassIndex(material);
+            Graphics.Blit(bakedTexture, renderTexture, material, forwardPassIndex);
            
             RenderTexture.active = renderTexture;
 
