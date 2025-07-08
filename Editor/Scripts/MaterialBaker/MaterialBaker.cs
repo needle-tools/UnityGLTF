@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -14,6 +15,26 @@ namespace UnityGLTF
     {
         public const string DEBUG_DISPLAY = "DEBUG_DISPLAY";
 
+        private static string[] IgnorableShaders = new string[]
+        {
+            "UnityGLTF/PBRGraph",
+            "UnityGLTF/UnlitGraph",
+            "Universal Render Pipeline/Lit",
+            "Universal Render Pipeline/Unlit",
+            "Universal Render Pipeline/Simple Lit",
+        };
+        
+        private static bool ShouldMaterialBeIgnored(Material material, BakeMode mode)
+        {
+            if (mode != BakeMode.TextureSpace && !ShaderModifier.IsShaderGraph(material.shader))
+                return true;
+
+            if (IgnorableShaders.Contains(material.shader.name))
+                return true;
+            
+            return false;
+        }
+
         public static PbrMaps[] Bake(Renderer renderer, BakeSettings settings)
         {
             var pbrMaps = new List<PbrMaps>();
@@ -24,25 +45,46 @@ namespace UnityGLTF
                 case BakeMode.TextureSpace:
                     for (var i = 0; i < sharedMaterials.Length; i++)
                     {
+                        if (ShouldMaterialBeIgnored(sharedMaterials[i], settings.bakeMode))
+                        {
+                            pbrMaps.Add(new PbrMaps { forMaterial = sharedMaterials[i] });
+                            continue;
+                        }
                         newPbrMaps = BakePBRMaterial(sharedMaterials[i], settings.resolution);
                         if (newPbrMaps != null)
                             pbrMaps.Add(newPbrMaps);
+                        else
+                            pbrMaps.Add(new PbrMaps { forMaterial = sharedMaterials[i] });
                     }
                     break;
                 case BakeMode.UV0:
                     for (var i = 0; i < sharedMaterials.Length; i++)
                     {
+                        if (ShouldMaterialBeIgnored(sharedMaterials[i], settings.bakeMode))
+                        {
+                            pbrMaps.Add(new PbrMaps { forMaterial = sharedMaterials[i] });
+                            continue;
+                        }
                         newPbrMaps = BakePBRMaterial(renderer, i, settings.resolution, 0);
                         if (newPbrMaps != null)
                             pbrMaps.Add(newPbrMaps);
+                        else
+                            pbrMaps.Add(new PbrMaps { forMaterial = sharedMaterials[i] });
                     }
                     break;
                 case BakeMode.UV1:
                     for (var i = 0; i < sharedMaterials.Length; i++)
                     {
+                        if (ShouldMaterialBeIgnored(sharedMaterials[i], settings.bakeMode))
+                        {
+                            pbrMaps.Add(new PbrMaps { forMaterial = sharedMaterials[i] });
+                            continue;
+                        }
                         newPbrMaps = BakePBRMaterial(renderer, i, settings.resolution, 1);
                         if (newPbrMaps != null)
                             pbrMaps.Add(newPbrMaps);
+                        else
+                            pbrMaps.Add(new PbrMaps { forMaterial = sharedMaterials[i] });
                     }
                     break;
                 default:

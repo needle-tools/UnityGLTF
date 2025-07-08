@@ -149,6 +149,11 @@ namespace UnityGLTF
             return shaderAsset;
         }
         
+        public static bool IsShaderGraph(Shader shader)
+        {
+            return shader.IsShaderGraphAsset();
+        }
+        
         public static string GetShaderSource(Shader shader)
         {
             var shaderPath = UnityEditor.AssetDatabase.GetAssetPath(shader);

@@ -84,6 +84,8 @@ namespace UnityGLTF
                 {
                     if (mat != null)
                     {
+                        if (orgMaterials.Contains(mat))
+                            continue;
 
                         var matPath = AssetDatabase.GetAssetPath(mat);
                         AssetDatabase.DeleteAsset(matPath);
@@ -117,15 +119,23 @@ namespace UnityGLTF
 
             var bakedMaterials = new List<Material>();
             var bakedTextures = new List<Texture>();
-            
+
+            int index = 0;
             foreach (var map in maps)
             {
+                if (map.forMaterial == orgMaterials[index])
+                {
+                    bakedMaterials.Add(map.forMaterial);
+                    index++;
+                    continue;
+                }
                 var newMaterial = ChannelExporter.SaveMaps(map, bakeMode == BakeMode.UV1 ? 1 : 0);
                 bakedMaterials.Add(newMaterial);
 
                 var textureProperties = newMaterial.GetTexturePropertyNames();
                 
                 bakedTextures.AddRange( textureProperties.Select(newMaterial.GetTexture).Where(t => t != null));
+                index++;
             }
             lastBakedMaterials = bakedMaterials.ToArray();
             lastBakedTextures = bakedTextures.Distinct().ToArray();
@@ -253,7 +263,7 @@ namespace UnityGLTF
                         if (bakerComponent.lastBakedMaterials != null && bakerComponent.lastBakedMaterials.Length > 0)
                         {
                             GUILayout.BeginVertical(GUILayout.Width(widthPerColumn) );
-                            foreach (var mat in bakerComponent.lastBakedMaterials)
+                            foreach (var mat in bakerComponent.lastBakedMaterials.Where( mat => !bakerComponent.orgMaterials.Contains(mat)))
                             {
                                 EditorGUILayout.ObjectField(mat, typeof(Material), false);
                             }
