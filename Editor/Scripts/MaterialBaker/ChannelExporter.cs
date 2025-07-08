@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using GLTF.Schema;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -290,7 +291,11 @@ namespace UnityGLTF
 
             // set the import settings for these textures. baseColor and emission are sRGB, normal is normal map, orm is linear
             var newMaterial = AssetDatabase.LoadAssetAtPath<Material>(materialPath);
-            if (!newMaterial) newMaterial = new Material(Shader.Find("UnityGLTF/PBRGraph"));
+    
+            GetMaterialSettings(maps, out var unlit, out var alphaMode, out var alphaCutoff, out var doubleSided);
+
+            
+            if (!newMaterial) newMaterial = new Material(Shader.Find(unlit ? "UnityGLTF/UnlitGraph" : "UnityGLTF/PBRGraph"));
             
             if (hasBaseColor)
             {
@@ -365,6 +370,11 @@ namespace UnityGLTF
             mapper.OcclusionTexCoord = uvChannel;
             mapper.MetallicRoughnessTexCoord = uvChannel;
             
+            mapper.DoubleSided = doubleSided;
+            mapper.AlphaMode = alphaMode;
+            mapper.AlphaCutoff = alphaCutoff;
+            
+
             // TODO set Opaque/Transparent based on the original material
             // TODO set alpha cutoff based on the original material
             // TODO set double sided based on the original material
@@ -481,6 +491,66 @@ namespace UnityGLTF
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             return newMaterial;
+        }
+
+        private static void GetMaterialSettings(PbrMaps maps, out bool isUnlit, out AlphaMode alphaMode, out float alphaCutoff,
+            out bool doubleSided)
+        {
+            isUnlit = false;
+
+            var matType = maps.forMaterial.GetTag("UniversalMaterialType", false);
+            if (matType == "Unlit" || matType == "UnlitShaderGraph")
+            {
+                isUnlit = true;
+            }
+            else if (maps.forMaterial.shader.name.Contains("unlit", StringComparison.OrdinalIgnoreCase))
+            {
+                isUnlit = true;
+            }
+        
+            
+            alphaMode = AlphaMode.OPAQUE;
+            alphaCutoff = 0.5f;
+            doubleSided = false;
+            var isBirp = !GraphicsSettings.currentRenderPipeline;
+            switch (maps.forMaterial.GetTag("RenderType", false, ""))
+            {
+                case "TransparentCutout":
+                    if (maps.forMaterial.HasProperty("alphaCutoff"))
+                        alphaCutoff = maps.forMaterial.GetFloat("alphaCutoff");
+                    else if (maps.forMaterial.HasProperty("_AlphaCutoff"))
+                        alphaCutoff = maps.forMaterial.GetFloat("_AlphaCutoff");
+                    else if (maps.forMaterial.HasProperty("_Cutoff"))
+                        alphaCutoff = maps.forMaterial.GetFloat("_Cutoff");
+                    alphaMode = AlphaMode.MASK;
+                    break;
+                case "Transparent":
+                case "Fade":
+                    alphaMode = AlphaMode.BLEND;
+                    break;
+                default:
+                    if ((!isBirp && maps.forMaterial.IsKeywordEnabled("_ALPHATEST_ON")) ||
+                        (isBirp && maps.forMaterial.IsKeywordEnabled("_BUILTIN_ALPHATEST_ON")) ||
+                        maps.forMaterial.renderQueue == 2450)
+                    {
+                        if (maps.forMaterial.HasProperty("alphaCutoff"))
+                            alphaCutoff = maps.forMaterial.GetFloat("alphaCutoff");
+                        else if (maps.forMaterial.HasProperty("_AlphaCutoff"))
+                            alphaCutoff = maps.forMaterial.GetFloat("_AlphaCutoff");
+                        else if (maps.forMaterial.HasProperty("_Cutoff"))
+                            alphaCutoff = maps.forMaterial.GetFloat("_Cutoff");
+                        alphaMode = AlphaMode.MASK;
+                    }
+                    else
+                    {
+                        alphaMode = AlphaMode.OPAQUE;
+                    }
+                    break;
+            }
+
+            doubleSided = (maps.forMaterial.HasProperty("_Cull") && maps.forMaterial.GetInt("_Cull") == (int)CullMode.Off) ||
+                          (maps.forMaterial.HasProperty("_CullMode") && maps.forMaterial.GetInt("_CullMode") == (int)CullMode.Off) ||
+                          (maps.forMaterial.shader.name.EndsWith("-Double")); // workaround for exporting shaders that are set to double-sided on 2020.3
         }
 
         [MenuItem("CONTEXT/MeshRenderer/UnityGLTF/Switch to converted material")]
