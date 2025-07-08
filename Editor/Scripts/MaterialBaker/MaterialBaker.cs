@@ -47,14 +47,14 @@ namespace UnityGLTF
                     {
                         if (ShouldMaterialBeIgnored(sharedMaterials[i], settings.bakeMode))
                         {
-                            pbrMaps.Add(new PbrMaps { forMaterial = sharedMaterials[i] });
+                            pbrMaps.Add(new PbrMaps { forMaterial = sharedMaterials[i], ignore = true });
                             continue;
                         }
                         newPbrMaps = BakePBRMaterial(sharedMaterials[i], settings.resolution);
                         if (newPbrMaps != null)
                             pbrMaps.Add(newPbrMaps);
                         else
-                            pbrMaps.Add(new PbrMaps { forMaterial = sharedMaterials[i] });
+                            pbrMaps.Add(new PbrMaps { forMaterial = sharedMaterials[i], ignore = true});
                     }
                     break;
                 case BakeMode.UV0:
@@ -62,14 +62,14 @@ namespace UnityGLTF
                     {
                         if (ShouldMaterialBeIgnored(sharedMaterials[i], settings.bakeMode))
                         {
-                            pbrMaps.Add(new PbrMaps { forMaterial = sharedMaterials[i] });
+                            pbrMaps.Add(new PbrMaps { forMaterial = sharedMaterials[i], ignore = true });
                             continue;
                         }
                         newPbrMaps = BakePBRMaterial(renderer, i, settings.resolution, 0);
                         if (newPbrMaps != null)
                             pbrMaps.Add(newPbrMaps);
                         else
-                            pbrMaps.Add(new PbrMaps { forMaterial = sharedMaterials[i] });
+                            pbrMaps.Add(new PbrMaps { forMaterial = sharedMaterials[i], ignore = true });
                     }
                     break;
                 case BakeMode.UV1:
@@ -77,14 +77,14 @@ namespace UnityGLTF
                     {
                         if (ShouldMaterialBeIgnored(sharedMaterials[i], settings.bakeMode))
                         {
-                            pbrMaps.Add(new PbrMaps { forMaterial = sharedMaterials[i] });
+                            pbrMaps.Add(new PbrMaps { forMaterial = sharedMaterials[i], ignore = true });
                             continue;
                         }
                         newPbrMaps = BakePBRMaterial(renderer, i, settings.resolution, 1);
                         if (newPbrMaps != null)
                             pbrMaps.Add(newPbrMaps);
                         else
-                            pbrMaps.Add(new PbrMaps { forMaterial = sharedMaterials[i] });
+                            pbrMaps.Add(new PbrMaps { forMaterial = sharedMaterials[i], ignore = true });
                     }
                     break;
                 default:
@@ -342,10 +342,18 @@ namespace UnityGLTF
             var index = material.FindPass("Forward");
             if (index == -1)
                 index = material.FindPass("ForwardLit");
+            if (index == -1)
+                index = material.FindPass("ForwardOnly");
+            if (index == -1)
+                index = material.FindPass("Universal Forward");
 
             if (index == -1)
             {
-                Debug.LogWarning($"Material {material.name} does not have a Forward pass.");
+                var passes = "";
+                for (int i = 0; i < material.passCount; i++)
+                    passes += material.GetPassName(i)+"\n";
+
+                Debug.LogWarning($"Material {material.name} does not have a Forward pass. Available passes:\n{passes}");
                 return -1;
             }
             return index;

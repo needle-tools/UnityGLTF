@@ -58,6 +58,7 @@ namespace UnityGLTF
 
     public class PbrMaps
     {
+        public bool ignore = false;
         public TextureWithTransform albedo;
         public TextureWithTransform alpha;
         public TextureWithTransform metallic;

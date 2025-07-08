@@ -123,7 +123,7 @@ namespace UnityGLTF
             int index = 0;
             foreach (var map in maps)
             {
-                if (map.forMaterial == orgMaterials[index])
+                if (map.ignore)
                 {
                     bakedMaterials.Add(map.forMaterial);
                     index++;
