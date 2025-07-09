@@ -46,7 +46,6 @@ namespace UnityGLTF
             return false;
         }
         
-        
 
         public static PbrMaps[] Bake(Renderer renderer, BakeSettings settings)
         {
@@ -383,6 +382,11 @@ namespace UnityGLTF
         {
             bool isLinear = BakeHelpers.IsDebugMaterialModeInLinear(mode);
             var material = new Material(mat);
+
+            if (ShaderModifier.RequiresTextureSpacePatching(mat.shader))
+                material.shader = ShaderModifier.PatchAmplifyUnlitShaderForTextureSpace(mat.shader);
+                
+                
             // HACK: disable a view-dependant effect on a particular shader
             if (material.HasFloat("_Fresnel_Normal_Overide"))
                 material.SetFloat("_Fresnel_Normal_Overide", 0f);

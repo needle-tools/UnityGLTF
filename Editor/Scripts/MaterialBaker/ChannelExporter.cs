@@ -83,14 +83,14 @@ namespace UnityGLTF
                 var directoryForMesh = Path.Combine(directoryForMaterial, meshName);
                 if (!Directory.Exists(directoryForMesh))
                     Directory.CreateDirectory(directoryForMesh);
-                
+
                 targetDirectory = directoryForMesh;
             }
             else
             {
                 targetDirectory = directoryForMaterial;
             }
-            
+
             var baseColorPath = Path.Combine(targetDirectory, fileName + "_baseColor.png");
             var normalPath = Path.Combine(targetDirectory, fileName + "_normal.png");
             var emissionPath = Path.Combine(targetDirectory, fileName + "_emission.png");
@@ -108,25 +108,26 @@ namespace UnityGLTF
             bool hasNormal = false;
             bool hasOrm = false;
             bool hasEmission = false;
-            
+
             Color baseColor = Color.white;
             Color emissionColor = Color.black;
             float metallicFactor = 0f;
             float roughnessFactor = 1f;
-            
+
             if (maps.albedo != null || maps.alpha != null)
             {
-                var mergedAlbedoAndAlpha = new Texture2D(textureSize.width, textureSize.height, TextureFormat.RGBA32, false);
+                var mergedAlbedoAndAlpha =
+                    new Texture2D(textureSize.width, textureSize.height, TextureFormat.RGBA32, false);
                 mergedAlbedoAndAlpha.name = "Merged Albedo and Alpha";
 
-                Color[] pixels =  maps.albedo?.map.GetPixels();
+                Color[] pixels = maps.albedo?.map.GetPixels();
                 Color[] alphaPixels = maps.alpha?.map.GetPixels();
-                
+
                 if (pixels == null)
                 {
                     pixels = new Color[alphaPixels.Length];
                     for (var i = 0; i < pixels.Length; i++)
-                        pixels[i] = new Color(0,0,0 , alphaPixels[i].r);
+                        pixels[i] = new Color(0, 0, 0, alphaPixels[i].r);
                 }
                 else if (alphaPixels == null)
                 {
@@ -138,7 +139,7 @@ namespace UnityGLTF
                     for (var i = 0; i < pixels.Length; i++)
                         pixels[i].a = alphaPixels[i].r;
                 }
-                
+
                 mergedAlbedoAndAlpha.SetPixels(pixels);
 
                 if (BakeHelpers.TextureHasSingleValue(mergedAlbedoAndAlpha, out var singleBaseColorTex, maps.mask?.map))
@@ -157,29 +158,34 @@ namespace UnityGLTF
             bool metallicHasSingleValue = true;
             bool smoothnessHasSingleValue = true;
             bool occlusionHasSingleValue = true;
-            
+
             bool metallicSingleValueOrEmpty = true;
             bool smoothnessSingleValueOrEmpty = true;
             bool occlusionSingleValueOrEmpty = true;
 
             metallicFactor = 0f;
             roughnessFactor = 1f;
-            
+
             if (maps.metallic != null || maps.occlusion != null || maps.smoothness != null)
             {
                 var orm = new Texture2D(textureSize.width, textureSize.height, TextureFormat.RGBA32, false, true);
                 orm.name = "Occlusion Roughness Metallic";
-          
-                metallicHasSingleValue = BakeHelpers.TextureHasSingleValue(maps.metallic?.map, out var metallicColorTex, maps.mask?.map);
-                smoothnessHasSingleValue = BakeHelpers.TextureHasSingleValue(maps.smoothness?.map, out var smoothnessColorTex, maps.mask?.map);
-                occlusionHasSingleValue = BakeHelpers.TextureHasSingleValue(maps.occlusion?.map, out var occlusionColorTex, maps.mask?.map);
+
+                metallicHasSingleValue =
+                    BakeHelpers.TextureHasSingleValue(maps.metallic?.map, out var metallicColorTex, maps.mask?.map);
+                smoothnessHasSingleValue = BakeHelpers.TextureHasSingleValue(maps.smoothness?.map,
+                    out var smoothnessColorTex, maps.mask?.map);
+                occlusionHasSingleValue =
+                    BakeHelpers.TextureHasSingleValue(maps.occlusion?.map, out var occlusionColorTex, maps.mask?.map);
 
                 metallicSingleValueOrEmpty = maps.metallic == null || metallicHasSingleValue;
                 smoothnessSingleValueOrEmpty = maps.smoothness == null || smoothnessHasSingleValue;
-                occlusionSingleValueOrEmpty = maps.occlusion == null || (occlusionHasSingleValue && occlusionColorTex == Color.white);
+                occlusionSingleValueOrEmpty = maps.occlusion == null ||
+                                              (occlusionHasSingleValue && occlusionColorTex == Color.white);
 
-                bool createOrmTexture = !occlusionSingleValueOrEmpty || !metallicSingleValueOrEmpty || !smoothnessSingleValueOrEmpty;
-                
+                bool createOrmTexture = !occlusionSingleValueOrEmpty || !metallicSingleValueOrEmpty ||
+                                        !smoothnessSingleValueOrEmpty;
+
                 if (createOrmTexture)
                 {
                     var metallicPixels = maps.metallic?.map.GetPixels();
@@ -205,7 +211,7 @@ namespace UnityGLTF
                         roughnessFactor = (1f - smoothnessColorTex.r);
                     else if (maps.smoothness != null)
                         roughnessFactor = 1f;
-                    
+
                     orm.SetPixels(ormPixels);
 
                     var ormTexture = orm.EncodeToPNG();
@@ -245,7 +251,7 @@ namespace UnityGLTF
                         if (linear.r > highestValue) highestValue = linear.r;
                         if (linear.g > highestValue) highestValue = linear.g;
                         if (linear.b > highestValue) highestValue = linear.b;
-                        
+
                         if (emissionPixels[i].r > 1f || emissionPixels[i].g > 1f || emissionPixels[i].b > 1f)
                         {
                             isHdr = true;
@@ -267,7 +273,7 @@ namespace UnityGLTF
                             if (l.b < 0) l.b = 0;
                             emissionPixels[i] = l;
                         }
-                        
+
                         maps.emission.map.SetPixels(emissionPixels);
                         emissionColor = Color.white * highestValue;
                     }
@@ -285,12 +291,13 @@ namespace UnityGLTF
                             if (l.b < 0) l.b = 0;
                             emissionPixels[i] = l;
                         }
+
                         maps.emission.map.SetPixels(emissionPixels);
                     }
 
                     var emission = maps.emission.map.EncodeToPNG();
                     File.WriteAllBytes(emissionPath, emission);
-                    hasEmission = true; 
+                    hasEmission = true;
                 }
             }
 
@@ -298,12 +305,18 @@ namespace UnityGLTF
 
             // set the import settings for these textures. baseColor and emission are sRGB, normal is normal map, orm is linear
             var newMaterial = AssetDatabase.LoadAssetAtPath<Material>(materialPath);
-    
+
             GetMaterialSettings(maps, out var unlit, out var alphaMode, out var alphaCutoff, out var doubleSided);
 
-            
-            if (!newMaterial) newMaterial = new Material(Shader.Find(unlit ? "UnityGLTF/UnlitGraph" : "UnityGLTF/PBRGraph"));
-            
+            Shader usingGltfShader = Shader.Find(unlit ? "UnityGLTF/UnlitGraph" : "UnityGLTF/PBRGraph");
+            if (!newMaterial)
+                newMaterial = new Material(usingGltfShader);
+            else
+            {
+                if (newMaterial.shader != usingGltfShader)
+                    newMaterial.shader = usingGltfShader;
+            }
+
             if (hasBaseColor)
             {
                 var baseColorImporter = AssetImporter.GetAtPath(baseColorPath) as TextureImporter;
@@ -315,159 +328,187 @@ namespace UnityGLTF
             }
             else
                 newMaterial.SetTexture("baseColorTexture", null);
-
-            if (hasNormal)
-            {
-                var normalImporter = AssetImporter.GetAtPath(normalPath) as TextureImporter;
-                normalImporter.textureType = TextureImporterType.NormalMap;
-                normalImporter.textureCompression = TextureImporterCompression.Uncompressed;
-                normalImporter.SaveAndReimport();
-                var importedNormal = AssetDatabase.LoadAssetAtPath<Texture2D>(normalPath);
-                newMaterial.SetTexture("normalTexture", importedNormal);
-            }
-            else
-                newMaterial.SetTexture("normalTexture", null);
-
-            if (hasEmission)
-            {
-                var emissionImporter = AssetImporter.GetAtPath(emissionPath) as TextureImporter;
-                emissionImporter.textureType = TextureImporterType.Default;
-                emissionImporter.sRGBTexture = true;
-                emissionImporter.textureCompression = TextureImporterCompression.Uncompressed;
-                emissionImporter.SaveAndReimport();
-                var importedEmission = AssetDatabase.LoadAssetAtPath<Texture2D>(emissionPath);
-                newMaterial.SetTexture("emissiveTexture", importedEmission);
-            }
-            else
-                newMaterial.SetTexture("emissiveTexture", null);
-
-            if (hasOrm)
-            {
-                var ormImporter = AssetImporter.GetAtPath(ormPath) as TextureImporter;
-                ormImporter.textureType = TextureImporterType.Default;
-                ormImporter.sRGBTexture = false;
-                ormImporter.textureCompression = TextureImporterCompression.Uncompressed;
-                ormImporter.SaveAndReimport();
-                var importedOrm = AssetDatabase.LoadAssetAtPath<Texture2D>(ormPath);
-                if (!metallicSingleValueOrEmpty || !smoothnessSingleValueOrEmpty)
-                    newMaterial.SetTexture("metallicRoughnessTexture", importedOrm);
-                if (!occlusionSingleValueOrEmpty)
-                    newMaterial.SetTexture("occlusionTexture", importedOrm);
-            }
-            else
-            {
-                newMaterial.SetTexture("metallicRoughnessTexture", null);
-                newMaterial.SetTexture("occlusionTexture", null);
-
-            }
-
-            var mapper = new PBRGraphMap(newMaterial);
-            
-            // Ensure multiplicative defaults#
-            mapper.MetallicFactor = metallicFactor;
-            mapper.RoughnessFactor = roughnessFactor;
-            mapper.EmissiveFactor = emissionColor;
-            mapper.OcclusionTexStrength = 1f;
-            mapper.BaseColorFactor = baseColor;
-            mapper.NormalTexScale = 1;
-            // Set desired UV channels – based on the space we baked into
-            mapper.BaseColorTexCoord = uvChannel;
-            mapper.NormalTexCoord = uvChannel;
-            mapper.EmissiveTexCoord = uvChannel;
-            mapper.OcclusionTexCoord = uvChannel;
-            mapper.MetallicRoughnessTexCoord = uvChannel;
-            
-            mapper.DoubleSided = doubleSided;
-            mapper.AlphaMode = alphaMode;
-            mapper.AlphaCutoff = alphaCutoff;
-            
-
-            // TODO set Opaque/Transparent based on the original material
-            // TODO set alpha cutoff based on the original material
-            // TODO set double sided based on the original material
-            // TODO set texture tiling and offset based on the original material
-            // HACK for a specific material that stores tiling/offset in a color property
             
             bool anyTextureTransform = false;
-            if (hasOrm)
+            
+            if (!unlit)
             {
-                if (maps.metallic != null && !maps.metallic.hasDefaultTransform)
+                if (hasNormal)
                 {
-                    mapper.MetallicRoughnessXOffset = maps.metallic.offset;
-                    mapper.MetallicRoughnessXScale = maps.metallic.scale;
+                    var normalImporter = AssetImporter.GetAtPath(normalPath) as TextureImporter;
+                    normalImporter.textureType = TextureImporterType.NormalMap;
+                    normalImporter.textureCompression = TextureImporterCompression.Uncompressed;
+                    normalImporter.SaveAndReimport();
+                    var importedNormal = AssetDatabase.LoadAssetAtPath<Texture2D>(normalPath);
+                    newMaterial.SetTexture("normalTexture", importedNormal);
                 }
                 else
-                if (maps.smoothness != null && !maps.smoothness.hasDefaultTransform)
+                    newMaterial.SetTexture("normalTexture", null);
+
+                if (hasEmission)
                 {
-                    mapper.MetallicRoughnessXOffset = maps.smoothness.offset;
-                    mapper.MetallicRoughnessXScale = maps.smoothness.scale;
+                    var emissionImporter = AssetImporter.GetAtPath(emissionPath) as TextureImporter;
+                    emissionImporter.textureType = TextureImporterType.Default;
+                    emissionImporter.sRGBTexture = true;
+                    emissionImporter.textureCompression = TextureImporterCompression.Uncompressed;
+                    emissionImporter.SaveAndReimport();
+                    var importedEmission = AssetDatabase.LoadAssetAtPath<Texture2D>(emissionPath);
+                    newMaterial.SetTexture("emissiveTexture", importedEmission);
                 }
                 else
-                if (maps.occlusion != null && !maps.occlusion.hasDefaultTransform)
+                    newMaterial.SetTexture("emissiveTexture", null);
+
+                if (hasOrm)
                 {
-                    mapper.MetallicRoughnessXOffset = maps.occlusion.offset;
-                    mapper.MetallicRoughnessXScale = maps.occlusion.scale;
+                    var ormImporter = AssetImporter.GetAtPath(ormPath) as TextureImporter;
+                    ormImporter.textureType = TextureImporterType.Default;
+                    ormImporter.sRGBTexture = false;
+                    ormImporter.textureCompression = TextureImporterCompression.Uncompressed;
+                    ormImporter.SaveAndReimport();
+                    var importedOrm = AssetDatabase.LoadAssetAtPath<Texture2D>(ormPath);
+                    if (!metallicSingleValueOrEmpty || !smoothnessSingleValueOrEmpty)
+                        newMaterial.SetTexture("metallicRoughnessTexture", importedOrm);
+                    if (!occlusionSingleValueOrEmpty)
+                        newMaterial.SetTexture("occlusionTexture", importedOrm);
                 }
                 else
                 {
-                    mapper.MetallicRoughnessXOffset = Vector2.zero;
-                    mapper.MetallicRoughnessXScale = Vector2.one;
+                    newMaterial.SetTexture("metallicRoughnessTexture", null);
+                    newMaterial.SetTexture("occlusionTexture", null);
+
                 }
-                anyTextureTransform = true;
-            }
-            if (hasNormal && !maps.normal.hasDefaultTransform)
-            {
-                mapper.NormalXOffset = maps.normal.offset;
-                mapper.NormalXScale = maps.normal.scale;
-                anyTextureTransform = true;
+
+
+                var mapper = new PBRGraphMap(newMaterial);
+
+                // Ensure multiplicative defaults#
+                mapper.MetallicFactor = metallicFactor;
+                mapper.RoughnessFactor = roughnessFactor;
+                mapper.EmissiveFactor = emissionColor;
+                mapper.OcclusionTexStrength = 1f;
+                mapper.BaseColorFactor = baseColor;
+                mapper.NormalTexScale = 1;
+                // Set desired UV channels – based on the space we baked into
+                mapper.BaseColorTexCoord = uvChannel;
+                mapper.NormalTexCoord = uvChannel;
+                mapper.EmissiveTexCoord = uvChannel;
+                mapper.OcclusionTexCoord = uvChannel;
+                mapper.MetallicRoughnessTexCoord = uvChannel;
+
+                mapper.DoubleSided = doubleSided;
+                mapper.AlphaMode = alphaMode;
+                mapper.AlphaCutoff = alphaCutoff;
+
+
+                if (hasOrm)
+                {
+                    if (maps.metallic != null && !maps.metallic.hasDefaultTransform)
+                    {
+                        mapper.MetallicRoughnessXOffset = maps.metallic.offset;
+                        mapper.MetallicRoughnessXScale = maps.metallic.scale;
+                    }
+                    else if (maps.smoothness != null && !maps.smoothness.hasDefaultTransform)
+                    {
+                        mapper.MetallicRoughnessXOffset = maps.smoothness.offset;
+                        mapper.MetallicRoughnessXScale = maps.smoothness.scale;
+                    }
+                    else if (maps.occlusion != null && !maps.occlusion.hasDefaultTransform)
+                    {
+                        mapper.MetallicRoughnessXOffset = maps.occlusion.offset;
+                        mapper.MetallicRoughnessXScale = maps.occlusion.scale;
+                    }
+                    else
+                    {
+                        mapper.MetallicRoughnessXOffset = Vector2.zero;
+                        mapper.MetallicRoughnessXScale = Vector2.one;
+                    }
+
+                    anyTextureTransform = true;
+                }
+
+                if (hasNormal && !maps.normal.hasDefaultTransform)
+                {
+                    mapper.NormalXOffset = maps.normal.offset;
+                    mapper.NormalXScale = maps.normal.scale;
+                    anyTextureTransform = true;
+                }
+                else
+                {
+                    mapper.NormalXOffset = Vector2.zero;
+                    mapper.NormalXScale = Vector2.one;
+                }
+
+                if (hasEmission && !maps.emission.hasDefaultTransform)
+                {
+                    mapper.EmissiveXOffset = maps.emission.offset;
+                    mapper.EmissiveXScale = maps.emission.scale;
+                    anyTextureTransform = true;
+                }
+                else
+                {
+                    mapper.EmissiveXOffset = Vector2.zero;
+                    mapper.EmissiveXScale = Vector2.one;
+                }
+
+                if (hasOrm && maps.occlusion != null && !maps.occlusion.hasDefaultTransform)
+                {
+                    mapper.OcclusionXOffset = maps.occlusion.offset;
+                    mapper.OcclusionXScale = maps.occlusion.scale;
+                    anyTextureTransform = true;
+                }
+                else
+                {
+                    mapper.OcclusionXOffset = Vector2.zero;
+                    mapper.OcclusionXScale = Vector2.one;
+                }
+
+                if (hasBaseColor && maps.albedo != null && !maps.albedo.hasDefaultTransform)
+                {
+                    mapper.BaseColorXOffset = maps.albedo.offset;
+                    mapper.BaseColorXScale = maps.albedo.scale;
+                    anyTextureTransform = true;
+                }
+                else if (hasBaseColor && maps.alpha != null && !maps.alpha.hasDefaultTransform)
+                {
+                    mapper.BaseColorXOffset = maps.alpha.offset;
+                    mapper.BaseColorXScale = maps.alpha.scale;
+                    anyTextureTransform = true;
+                }
+                else
+                {
+                    mapper.BaseColorXOffset = Vector2.zero;
+                    mapper.BaseColorXScale = Vector2.one;
+                }
             }
             else
-            {
-                mapper.NormalXOffset = Vector2.zero;
-                mapper.NormalXScale = Vector2.one;
-            }
-            
-            if (hasEmission && !maps.emission.hasDefaultTransform)
-            {
-                mapper.EmissiveXOffset = maps.emission.offset;
-                mapper.EmissiveXScale = maps.emission.scale;
-                anyTextureTransform = true;
-            }
-            else
-            {
-                mapper.EmissiveXOffset = Vector2.zero;
-                mapper.EmissiveXScale = Vector2.one;
-            }
-            
-            if (hasOrm && maps.occlusion != null && !maps.occlusion.hasDefaultTransform)
-            {
-                mapper.OcclusionXOffset = maps.occlusion.offset;
-                mapper.OcclusionXScale = maps.occlusion.scale;
-                anyTextureTransform = true;
-            }
-            else
-            {
-                mapper.OcclusionXOffset = Vector2.zero;
-                mapper.OcclusionXScale = Vector2.one;
-            }
-            
-            if (hasBaseColor && maps.albedo != null && !maps.albedo.hasDefaultTransform)
-            {
-                mapper.BaseColorXOffset = maps.albedo.offset;
-                mapper.BaseColorXScale = maps.albedo.scale;
-                anyTextureTransform = true;
-            }
-            else
-            if (hasBaseColor && maps.alpha != null && !maps.alpha.hasDefaultTransform)
-            {
-                mapper.BaseColorXOffset = maps.alpha.offset;
-                mapper.BaseColorXScale = maps.alpha.scale;
-                anyTextureTransform = true;
-            }
-            else
-            {
-                mapper.BaseColorXOffset = Vector2.zero;
-                mapper.BaseColorXScale = Vector2.one;
+            { // Unlit
+
+                var unlitMapper = new UnlitGraphMap(newMaterial);
+                unlitMapper.BaseColorFactor = baseColor;
+                unlitMapper.BaseColorTexCoord = uvChannel;
+                unlitMapper.DoubleSided = doubleSided;
+                unlitMapper.AlphaMode = alphaMode;
+                unlitMapper.AlphaCutoff = alphaCutoff;
+                
+                if (hasBaseColor && maps.albedo != null && !maps.albedo.hasDefaultTransform)
+                {
+                    unlitMapper.BaseColorXOffset = maps.albedo.offset;
+                    unlitMapper.BaseColorXScale = maps.albedo.scale;
+                    anyTextureTransform = true;
+                    
+                }
+                else if (hasBaseColor && maps.alpha != null && !maps.alpha.hasDefaultTransform)
+                {
+                    unlitMapper.BaseColorXOffset = maps.alpha.offset;
+                    unlitMapper.BaseColorXScale = maps.alpha.scale;
+                    anyTextureTransform = true;
+                    
+                }
+                else
+                {
+                    unlitMapper.BaseColorXOffset = Vector2.zero;
+                    unlitMapper.BaseColorXScale = Vector2.one;
+                }
             }
 
             GLTFMaterialHelper.SetKeyword(newMaterial, "_TEXTURE_TRANSFORM", anyTextureTransform);
@@ -546,6 +587,9 @@ namespace UnityGLTF
                             alphaCutoff = maps.forMaterial.GetFloat("_AlphaCutoff");
                         else if (maps.forMaterial.HasProperty("_Cutoff"))
                             alphaCutoff = maps.forMaterial.GetFloat("_Cutoff");
+                        else if (maps.forMaterial.HasProperty("Alpha Cutoff"))
+                            alphaCutoff = maps.forMaterial.GetFloat("Alpha Cutoff");
+                            
                         alphaMode = AlphaMode.MASK;
                     }
                     else
@@ -565,9 +609,17 @@ namespace UnityGLTF
                 var shaderSource = ShaderModifier.GetShaderSource(maps.forMaterial.shader);
                 if (shaderSource != null)
                 {
-                    if (shaderSource.Contains("Cull Off"))
+                    var indexForwadPass = shaderSource.IndexOf("Name \"Forward\"", StringComparison.Ordinal);
+                    var indexCullOff = shaderSource.IndexOf("Cull Off", indexForwadPass, StringComparison.Ordinal);
+                    var indexHSLSForwardPass = shaderSource.IndexOf("HLSLPROGRAM", indexForwadPass, StringComparison.Ordinal);
+                    if (indexCullOff < indexHSLSForwardPass)
                     {
                         doubleSided = true;
+                    }
+
+                    if (shaderSource.Contains("#pragma multi_compile_local _ALPHATEST_ON"))
+                    {
+                        alphaMode = AlphaMode.MASK;
                     }
                 }
                 

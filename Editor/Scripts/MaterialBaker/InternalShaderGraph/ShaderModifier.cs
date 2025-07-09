@@ -5,6 +5,8 @@ using UnityEditor;
 using UnityEditor.Rendering;
 using UnityEditor.ShaderGraph;
 using UnityEngine;
+using UnityEngine.Rendering;
+using Object = UnityEngine.Object;
 
 namespace UnityGLTF
 {
@@ -17,6 +19,7 @@ namespace UnityGLTF
         }
         
         private static readonly Dictionary<Shader, (bool isAmplifyShader, bool hasDebugModeEnabled, DateTime lastChange)> _amplifyCheckCache = new Dictionary<Shader, (bool, bool, DateTime)>();
+        private static readonly Dictionary<Shader, (Shader shader, DateTime lastChange)> _amplifyUnlitPatched = new Dictionary<Shader, (Shader, DateTime)>();
         
         public static bool IsAmplifyShader(Shader shader, out bool hasDebugModeEnabled)
         {
@@ -59,6 +62,137 @@ namespace UnityGLTF
             }
             
             return isASE;
+        }
+
+        public static bool RequiresTextureSpacePatching(Shader shader)
+        {
+            if (IsAmplifyShader(shader, out _))
+            {
+                if (shader.FindSubshaderTagValue(0, new ShaderTagId("UniversalMaterialType")).name == "Unlit")
+                {
+                    // For Amplify Shader, we need to patch the shader source, to add DEBUG_DISPLAY
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public static Shader PatchAmplifyUnlitShaderForTextureSpace(Shader shader)
+        {
+            if (!RequiresTextureSpacePatching(shader))
+                return shader;
+            
+            var currentWriteTime = System.IO.File.GetLastWriteTime(AssetDatabase.GetAssetPath(shader));
+            if (_amplifyUnlitPatched.TryGetValue(shader, out var cachedShader))
+            {
+                if (cachedShader.lastChange == currentWriteTime)
+                {
+                    return cachedShader.shader;
+                }
+            }
+            
+            var shaderSource = GetShaderSource(shader);
+            if (!IsAmplifyShader(shader, out bool hasDebugModeEnabled))
+            {
+                Debug.LogError($"Shader {shader.name} is not a valid Amplify Shader. Cannot patch for texture space.");
+                return shader;
+            }
+            
+            // For Amplify Shader, we need to patch the shader source
+            shaderSource = PatchDebugViewToAmplifyUnlitShader(shaderSource, shader);
+            
+            var shaderAsset = ShaderUtil.CreateShaderAsset(null, shaderSource, true);
+            shaderAsset.name = shader.name +  $"(Patched Unlit)";
+            // Check for errors
+            var errors = ShaderUtil.GetShaderMessages(shaderAsset);
+            if (errors != null && errors.Length > 0)
+            {
+                foreach (var error in errors)
+                {
+                    if (error.severity == ShaderCompilerMessageSeverity.Warning)
+                        Debug.LogWarning($"Shader {shaderAsset.name} has warning: {error}");
+                    else if (error.severity == ShaderCompilerMessageSeverity.Error)
+                        Debug.LogError($"Shader {shaderAsset.name} has error: {error}");
+                }
+                // Don't hold a invalid shader asset in memory
+                Object.DestroyImmediate(shaderAsset);
+                return shader;
+
+            }
+            
+            if (_amplifyUnlitPatched.ContainsKey(shader))
+                _amplifyUnlitPatched.Remove(shader);
+            _amplifyUnlitPatched.Add(shader, (shaderAsset, currentWriteTime));
+            
+            Debug.Log($"<color=#808080ff>Patched Unlit Amplify Shader {shader.name}.</color>");
+
+            
+            // Write to file for debugging
+            var sourcePath = AssetDatabase.GetAssetPath(shader);
+            File.WriteAllText(sourcePath + "_debug.shader", shaderSource);
+            
+            return shaderAsset;
+        }
+
+        private static string PatchDebugViewToAmplifyUnlitShader(string shaderSource, Shader shader)
+        {
+            string debugFunc = "\t\t\t\t#if defined(DEBUG_DISPLAY)\n\t\t\t\t    half4 debugColor;\n\t\t\t\t\tSurfaceData surfaceData = (SurfaceData)0;\n\t\t\t\t\tsurfaceData.albedo = Color;\n\t\t\t\t\tsurfaceData.alpha = Alpha;\n\t\t\t\t    if (CanDebugOverrideOutputColor(inputData, surfaceData, debugColor))\n\t\t\t\t    {\n\t\t\t\t        return debugColor;\n\t\t\t\t    }\n\t\t\t\t#endif\n";
+            string debugInclude =
+                "\t\t\t#include \"Packages/com.unity.render-pipelines.universal/ShaderLibrary/Debug/Debugging3D.hlsl\"\n";
+
+            int index = 0;
+            // Add include
+            while (true)
+            {
+                index = shaderSource.IndexOf(
+                    "#include \"Packages/com.unity.render-pipelines.universal/Editor/ShaderGraph/Includes/ShaderPass.hlsl\"",
+                    index, StringComparison.Ordinal);
+                if (index == -1)
+                    break;
+                
+                shaderSource = shaderSource.Insert(index - 1, debugInclude);
+                index += debugInclude.Length + 10; 
+            }
+
+            // Remove Alpha clipping
+            index = 0;
+            while (true)
+            {
+                index = shaderSource.IndexOf("Name \"Forward\"", index, StringComparison.Ordinal);
+                if (index == -1)
+                    break;
+                
+                index = shaderSource.IndexOf("#ifdef _ALPHATEST_ON", index, StringComparison.Ordinal);
+                if (index == -1)
+                    break;
+                
+                var endIndex = shaderSource.IndexOf("#endif", index, StringComparison.Ordinal);
+                if (endIndex == -1)
+                    break;
+                shaderSource = shaderSource.Remove(index, endIndex - index + 6); // 6 is the length of #endif
+                break;
+            }
+            
+            // Add debug function
+            index = 0;
+            while (true)
+            {
+                index = shaderSource.IndexOf("Name \"Forward\"", index, StringComparison.Ordinal);
+                if (index == -1)
+                    break;
+                
+                index = shaderSource.IndexOf("#ifdef ASE_FOG", index, StringComparison.Ordinal);
+                if (index == -1)
+                    break;
+                
+                
+                shaderSource = shaderSource.Insert(index - 1, debugFunc);
+                index += debugFunc.Length + 10;
+                break;
+            }
+            
+            return shaderSource;
         }
         
         private static string PatchAmplifyShaderToClipSpace(string shaderSource, Shader shader, int uvChannel = 0)
@@ -307,6 +441,10 @@ namespace UnityGLTF
                     else if (error.severity == ShaderCompilerMessageSeverity.Error)
                         Debug.LogError($"Shader {shaderAsset.name} has error: {error}");
                 }
+                
+                // Don't hold a invalid shader asset in memory
+                Object.DestroyImmediate(shaderAsset);
+                return shader;
             }
             
             return shaderAsset;
