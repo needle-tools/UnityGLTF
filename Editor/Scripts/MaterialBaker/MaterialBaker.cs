@@ -29,17 +29,7 @@ namespace UnityGLTF
             if (mode != BakeMode.TextureSpace 
                 && (!ShaderModifier.IsShaderGraph(material.shader) && !ShaderModifier.IsAmplifyShader(material.shader, out _)))
                 return true;
-
-            if (mode == BakeMode.TextureSpace)
-            {
-                if (ShaderModifier.IsAmplifyShader(material.shader, out bool hasDebugMode))
-                {
-                    if (!hasDebugMode)
-                        return true;
-                }
-                
-            }
-
+            
             if (IgnorableShaders.Contains(material.shader.name))
                 return true;
             
@@ -384,7 +374,12 @@ namespace UnityGLTF
             var material = new Material(mat);
 
             if (ShaderModifier.RequiresTextureSpacePatching(mat.shader))
-                material.shader = ShaderModifier.PatchAmplifyUnlitShaderForTextureSpace(mat.shader);
+            {
+                if (ShaderModifier.IsAmplifyShader(mat.shader, out bool hasDebugModeEnabled))
+                {
+                        material.shader = ShaderModifier.PatchAmplifyShaderForTextureSpace(mat.shader);
+                }
+            }
                 
                 
             // HACK: disable a view-dependant effect on a particular shader

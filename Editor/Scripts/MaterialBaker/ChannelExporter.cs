@@ -612,10 +612,20 @@ namespace UnityGLTF
                     var indexForwadPass = shaderSource.IndexOf("Name \"Forward\"", StringComparison.Ordinal);
                     var indexCullOff = shaderSource.IndexOf("Cull Off", indexForwadPass, StringComparison.Ordinal);
                     var indexHSLSForwardPass = shaderSource.IndexOf("HLSLPROGRAM", indexForwadPass, StringComparison.Ordinal);
-                    if (indexCullOff < indexHSLSForwardPass)
+                    if (indexCullOff != -1 && indexCullOff < indexHSLSForwardPass)
                     {
                         doubleSided = true;
                     }
+                    else
+                    {
+                        var indexSubShader = shaderSource.IndexOf("SubShader", StringComparison.Ordinal);
+                        var indexHSLSInclude = shaderSource.IndexOf("HLSLINCLUDE", indexSubShader, StringComparison.Ordinal);
+                        indexCullOff = shaderSource.IndexOf("Cull Off", indexSubShader, StringComparison.Ordinal);
+                        if (indexCullOff != -1 && indexCullOff < indexHSLSInclude)
+                            doubleSided = true;
+
+                    }
+                    
 
                     if (shaderSource.Contains("#pragma multi_compile_local _ALPHATEST_ON"))
                     {
