@@ -118,7 +118,15 @@ namespace UnityGLTF
             var pbrMaps = new PbrMaps();
             var materials = renderer.sharedMaterials;
             pbrMaps.forMaterial = materials[submesh % materials.Length];
-            pbrMaps.forMesh = renderer.GetComponent<MeshFilter>().sharedMesh;
+            
+            var meshFilter =renderer.GetComponent<MeshFilter>();
+            if (meshFilter != null)
+                pbrMaps.forMesh = renderer.GetComponent<MeshFilter>().sharedMesh;
+            else
+            {
+                var skinnedMeshRenderer = renderer as SkinnedMeshRenderer;
+                pbrMaps.forMesh = skinnedMeshRenderer.sharedMesh;
+            }
             
             MeshUVs.Clear();
             
@@ -176,7 +184,17 @@ namespace UnityGLTF
             DeactivateGlobalDebugProperties();
             
             // TODO: submeshes
-            var mesh = renderer.GetComponent<MeshFilter>().sharedMesh;
+            Mesh mesh = null;
+            
+            var meshFilter =renderer.GetComponent<MeshFilter>();
+            if (meshFilter != null)
+                mesh = renderer.GetComponent<MeshFilter>().sharedMesh;
+            else
+            {
+                var skinnedMeshRenderer = renderer as SkinnedMeshRenderer;
+                mesh = skinnedMeshRenderer.sharedMesh;
+            }
+            
             var materials = renderer.sharedMaterials;
             var sourceMaterial = materials[submesh % materials.Length];
             
