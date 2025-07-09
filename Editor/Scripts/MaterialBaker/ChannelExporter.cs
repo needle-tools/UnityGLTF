@@ -212,6 +212,13 @@ namespace UnityGLTF
                     File.WriteAllBytes(ormPath, ormTexture);
                     hasOrm = true;
                 }
+                else
+                {
+                    if (smoothnessHasSingleValue)
+                        roughnessFactor = (1f - smoothnessColorTex.r);
+                    if (metallicHasSingleValue)
+                        metallicFactor = metallicColorTex.r;
+                }
             }
 
             if (maps.normal != null)
