@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
 using UnityEditor.Rendering;
@@ -15,10 +16,160 @@ namespace UnityGLTF
             WorldSpace,
         }
         
-        public static Shader PatchShaderUVsToClipSpace(Shader shader, int uvChannel = 0)
+        private static readonly Dictionary<Shader, (bool isAmplifyShader, bool hasDebugModeEnabled, DateTime lastChange)> _amplifyCheckCache = new Dictionary<Shader, (bool, bool, DateTime)>();
+        
+        public static bool IsAmplifyShader(Shader shader, out bool hasDebugModeEnabled)
         {
-            var shaderSource = GetShaderSource(shader);
-          
+            if (_amplifyCheckCache.TryGetValue(shader, out var cacheEntry))
+            {
+                var currentWriteTime = System.IO.File.GetLastWriteTime(AssetDatabase.GetAssetPath(shader));
+                if (cacheEntry.lastChange == currentWriteTime)
+                {
+                    hasDebugModeEnabled = cacheEntry.hasDebugModeEnabled;
+                    return cacheEntry.isAmplifyShader;
+                }
+            }
+            
+            hasDebugModeEnabled = false;
+            var sourcePath = AssetDatabase.GetAssetPath(shader);
+            if (string.IsNullOrEmpty(sourcePath))
+            {
+                _amplifyCheckCache.Add(shader, (false, false, DateTime.MinValue));
+                return false;
+            }
+
+            var source = System.IO.File.ReadAllText(sourcePath);
+            var lastWriteTime = System.IO.File.GetLastWriteTime(sourcePath); 
+            if (string.IsNullOrEmpty(source))
+            {
+                _amplifyCheckCache.Add(shader, (false, false, DateTime.MinValue));
+                return false;
+            }
+            
+            hasDebugModeEnabled = source.Contains("#pragma multi_compile_fragment _ DEBUG_DISPLAY", StringComparison.Ordinal);
+            var isASE = source.Contains("/*ASEBEGIN", StringComparison.Ordinal);
+
+            if (_amplifyCheckCache.ContainsKey(shader))
+                _amplifyCheckCache.Remove(shader);
+            _amplifyCheckCache.Add(shader, (isASE, hasDebugModeEnabled, lastWriteTime));
+
+            if (!hasDebugModeEnabled)
+            {
+                Debug.LogError("Amplify Shader " + shader.name + " does not have DEBUG_DISPLAY enabled. Please enable it to use this shader for backing.");
+            }
+            
+            return isASE;
+        }
+        
+        private static string PatchAmplifyShaderToClipSpace(string shaderSource, Shader shader, int uvChannel = 0)
+        {
+            var lastIndex = 0;
+            var index = -1;
+            var inserts = 0;
+            
+            var needsTextureCoordDefine = $"#define ASE_NEEDS_TEXTURE_COORDINATES{uvChannel}";
+            
+            var uvChannelName = $"texcoord{uvChannel}";
+            if (uvChannel == 0)
+                uvChannelName = $"texcoord";
+
+            while (true)
+            {
+                var indexDefineStart = shaderSource.IndexOf("#if defined(UNITY_INSTANCING_ENABLED) && defined(_TERRAIN_INSTANCED_PERPIXEL_NORMAL)", lastIndex);
+                if (indexDefineStart == -1)
+                    break;
+                indexDefineStart = shaderSource.IndexOf("#endif", indexDefineStart, StringComparison.Ordinal);
+                if (indexDefineStart == -1)
+                    break;
+                
+                
+                var indexDefineEnd = shaderSource.IndexOf("struct Attributes", indexDefineStart, StringComparison.Ordinal);
+                
+                var sub = shaderSource.Substring(indexDefineStart, indexDefineEnd - indexDefineStart);
+                if (!sub.Contains(needsTextureCoordDefine))
+                {
+                    shaderSource = shaderSource.Insert(indexDefineStart+ 7, $"\n{needsTextureCoordDefine}");
+                    inserts++;
+                }
+                lastIndex = indexDefineEnd;
+            }
+            
+            
+            var mode = Mode.WorldSpace;
+            
+            // Add  Pass - Conservative mode
+            shaderSource = AddConservativeRasterizationPass(shaderSource);
+            
+            while (true)
+            {
+                lastIndex = index;
+                index = shaderSource.IndexOf("Name \"Forward\"", lastIndex + 1, StringComparison.Ordinal);
+                if (index == -1)
+                    break;
+                
+                index = shaderSource.IndexOf("PackedVaryings VertexFunction(", lastIndex + 1, StringComparison.Ordinal);
+
+                if (index == -1)
+                    break;
+
+                var indexOfReturn = shaderSource.IndexOf("return output;", index, StringComparison.Ordinal);
+
+                if (indexOfReturn != -1)
+                {
+                    switch (mode) {
+                        case Mode.ClipSpace:
+                            shaderSource = shaderSource.Insert(indexOfReturn - 1,
+                                "\nfloat4 p = input." + uvChannelName + ";" +
+                                "p.w = 1; p.z = 0.999999; p.xy -= -1; p.z *= -1;" +
+                                "output.positionCS = p;");
+                            break;
+                        case Mode.WorldSpace:
+                            shaderSource = shaderSource.Insert(indexOfReturn - 1, $"\noutput.positionCS = TransformObjectToHClip(input.{uvChannelName});");
+                            break;
+                    }
+                    inserts++;
+                }
+
+                index = indexOfReturn;
+            }
+            
+            Debug.Log($"<color=#808080ff>Amplify Shader {shader.name}: found {inserts} to patch for {uvChannelName}.</color>");
+            if (inserts < 1)
+            {
+                // For debugging, output the shader source to a file
+                var sourcePath = AssetDatabase.GetAssetPath(shader);
+                File.WriteAllText(sourcePath + "_debug.shader", shaderSource);
+            }
+
+            return shaderSource;
+        }
+        
+        private static string AddConservativeRasterizationPass(string shaderSource)
+        {
+            if (!SystemInfo.supportsConservativeRaster)
+            {
+                Debug.Log($"<color=#808080ff>Conversative Rasterization is not supporting by the system. Skip enabling it in shader.</color>");
+                return shaderSource;
+            }
+            var passString = "Name \"Forward\"";
+            int addedConservativeToPasses = 0;
+            int passIndex = 0;
+            while (true)
+            {
+                passIndex = shaderSource.IndexOf(passString, passIndex + 1, StringComparison.Ordinal);
+                if (passIndex == -1)
+                    break;
+                
+
+                addedConservativeToPasses++;
+                shaderSource = shaderSource.Insert(passIndex+passString.Length, "\n Conservative True\n");
+            }
+            Debug.Log($"<color=#808080ff>Shader: found {addedConservativeToPasses} passes to patch for >Conservative True<.</color>");
+            return shaderSource;
+        }
+        
+        private static string PatchShaderGraphShaderToClipSpace(string shaderSource, Shader shader, int uvChannel = 0)
+        {
             var lastIndex = 0;
             var index = -1;
             var inserts = 0;
@@ -26,27 +177,11 @@ namespace UnityGLTF
             var uvChannelName = $"texCoord{uvChannel}";
             
             var mode = Mode.WorldSpace;
-
-            var enableConservativeRasterization = true;
-            var enablePatching = true;
             
             // Add  Pass - Conservative mode
-            string passString = "Pass\n{";
-            int addedConservativeToPasses = 0;
-            int passIndex = 0;
-            while (enableConservativeRasterization && SystemInfo.supportsConservativeRaster && true)
-            {
-                passIndex = shaderSource.IndexOf(passString, passIndex + 1, StringComparison.Ordinal);
-                if (passIndex == -1)
-                    break;
-
-                addedConservativeToPasses++;
-                shaderSource = shaderSource.Insert(passIndex+passString.Length, "\n Conservative True\n");
-            }
-            Debug.Log($"<color=#808080ff>Shader {shader.name}: found {addedConservativeToPasses} passes to patch for >Conservative True<.</color>");
-
+            shaderSource = AddConservativeRasterizationPass(shaderSource);
             
-            while (enablePatching && true)
+            while (true)
             {
                 lastIndex = index;
                 index = shaderSource.IndexOf("PackedVaryings PackVaryings (Varyings input)", lastIndex + 1, StringComparison.Ordinal);
@@ -130,9 +265,37 @@ namespace UnityGLTF
                 var sourcePath = AssetDatabase.GetAssetPath(shader);
                 File.WriteAllText(sourcePath + "_debug.shader", shaderSource);
             }
+
+            return shaderSource;
+        }
+        
+        public static Shader PatchShaderUVsToClipSpace(Shader shader, int uvChannel = 0)
+        {
+            var shaderSource = GetShaderSource(shader);
+
+            if (IsShaderGraph(shader))
+            {
+                shaderSource = PatchShaderGraphShaderToClipSpace(shaderSource, shader, uvChannel);
+            }
+            else
+            if (IsAmplifyShader(shader, out bool hasDebugModeEnabled))
+            {
+                if (!hasDebugModeEnabled)
+                {
+                    Debug.LogError($"Amplify Shader {shader.name} does not have DEBUG_DISPLAY enabled. Cannot patch UVs to clip space.");
+                    return shader;
+                }
+                // For Amplify Shader, we need to patch the shader source
+                shaderSource = PatchAmplifyShaderToClipSpace(shaderSource, shader, uvChannel);
+            }
+            else
+            {
+                Debug.LogError($"Shader {shader.name} is not a valid Amplify Shader or Shader Graph. Cannot patch UVs to clip space.");
+                return shader;
+            }
             
             var shaderAsset = ShaderUtil.CreateShaderAsset(null, shaderSource, true);
-            
+            shaderAsset.name = shader.name +  $"(Patched UV{uvChannel}";
             // Check for errors
             var errors = ShaderUtil.GetShaderMessages(shaderAsset);
             if (errors != null && errors.Length > 0)
@@ -140,9 +303,9 @@ namespace UnityGLTF
                 foreach (var error in errors)
                 {
                     if (error.severity == ShaderCompilerMessageSeverity.Warning)
-                        Debug.LogWarning($"Shader {shader.name} has warning: {error}");
+                        Debug.LogWarning($"Shader {shaderAsset.name} has warning: {error}");
                     else if (error.severity == ShaderCompilerMessageSeverity.Error)
-                        Debug.LogError($"Shader {shader.name} has error: {error}");
+                        Debug.LogError($"Shader {shaderAsset.name} has error: {error}");
                 }
             }
             
@@ -157,29 +320,38 @@ namespace UnityGLTF
         public static string GetShaderSource(Shader shader)
         {
             var shaderPath = UnityEditor.AssetDatabase.GetAssetPath(shader);
-            var assetCollection = new AssetCollection();
-            
-            // access private method "ShaderGraphImporter.GatherDependenciesFromSourceFile" by reflection
-            var shaderGraphImporterType = typeof(ShaderGraphImporter);
-            var gatherDependenciesMethod = shaderGraphImporterType.GetMethod("GatherDependenciesFromSourceFile", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
 
-            if (gatherDependenciesMethod == null)
+            if (IsShaderGraph(shader))
             {
-                Debug.LogError("GatherDependenciesFromSourceFile method not found");
-                return null;
-            }
-            
-            // call the method
-            var parameters = new object[] { shaderPath };
-            var dep = (string[]) gatherDependenciesMethod.Invoke(null, parameters);
-            foreach (var d in dep)
-            {
-                var assetType = UnityEditor.AssetDatabase.GetMainAssetTypeAtPath(d);
-                if (assetType == typeof(SubGraphAsset)) 
-                    assetCollection.AddAssetDependency(UnityEditor.AssetDatabase.GUIDFromAssetPath(d),AssetCollection.Flags.IsSubGraph );
-            }
+                var assetCollection = new AssetCollection();
+                
+                // access private method "ShaderGraphImporter.GatherDependenciesFromSourceFile" by reflection
+                var shaderGraphImporterType = typeof(ShaderGraphImporter);
+                var gatherDependenciesMethod = shaderGraphImporterType.GetMethod("GatherDependenciesFromSourceFile", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
 
-            return ShaderGraphImporter.GetShaderText(shaderPath, out _, assetCollection, out _);
+                if (gatherDependenciesMethod == null)
+                {
+                    Debug.LogError("GatherDependenciesFromSourceFile method not found");
+                    return null;
+                }
+                
+                // call the method
+                var parameters = new object[] { shaderPath };
+                var dep = (string[]) gatherDependenciesMethod.Invoke(null, parameters);
+                foreach (var d in dep)
+                {
+                    var assetType = UnityEditor.AssetDatabase.GetMainAssetTypeAtPath(d);
+                    if (assetType == typeof(SubGraphAsset)) 
+                        assetCollection.AddAssetDependency(UnityEditor.AssetDatabase.GUIDFromAssetPath(d),AssetCollection.Flags.IsSubGraph );
+                }
+
+                return ShaderGraphImporter.GetShaderText(shaderPath, out _, assetCollection, out _);
+            }
+            else
+            {
+                return System.IO.File.ReadAllText(shaderPath);
+            }
         }
+        
     }
 }

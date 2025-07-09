@@ -26,14 +26,27 @@ namespace UnityGLTF
         
         private static bool ShouldMaterialBeIgnored(Material material, BakeMode mode)
         {
-            if (mode != BakeMode.TextureSpace && !ShaderModifier.IsShaderGraph(material.shader))
+            if (mode != BakeMode.TextureSpace 
+                && (!ShaderModifier.IsShaderGraph(material.shader) && !ShaderModifier.IsAmplifyShader(material.shader, out _)))
                 return true;
+
+            if (mode == BakeMode.TextureSpace)
+            {
+                if (ShaderModifier.IsAmplifyShader(material.shader, out bool hasDebugMode))
+                {
+                    if (!hasDebugMode)
+                        return true;
+                }
+                
+            }
 
             if (IgnorableShaders.Contains(material.shader.name))
                 return true;
             
             return false;
         }
+        
+        
 
         public static PbrMaps[] Bake(Renderer renderer, BakeSettings settings)
         {
@@ -118,13 +131,6 @@ namespace UnityGLTF
             pbrMaps.forMaterial = materials[submesh % materials.Length];
             pbrMaps.forMesh = renderer.GetComponent<MeshFilter>().sharedMesh;
             
-            foreach (var shader in PatchedShaders)
-            {
-                var pair = shader.Value;
-                if (!pair) continue;
-                Object.DestroyImmediate(pair);
-            }
-            PatchedShaders.Clear();
             MeshUVs.Clear();
             
             pbrMaps.mask = BakeUVSpace(renderer, submesh, MaterialMode.SpriteMask, resolution, uvChannel);
@@ -140,21 +146,35 @@ namespace UnityGLTF
             return pbrMaps;
         }
     
-        private static readonly Dictionary<(Shader shader, int uvChannel), Shader> PatchedShaders = new Dictionary<(Shader shader, int uvChannel), Shader>();
+        private static readonly Dictionary<(Shader shader, int uvChannel), (Shader shader, DateTime lastChange)> PatchedShaders = new Dictionary<(Shader shader, int uvChannel), (Shader, DateTime)>();
         private static readonly Dictionary<(Mesh mesh, int uvChannel), (Vector2 minMaxX, Vector2 minMaxY)> MeshUVs = new Dictionary<(Mesh mesh, int uvChannel), (Vector2 minMaxX, Vector2 minMaxY)>();
         
         private static void PatchAndReplaceShader(Material material, int uvChannel)
         {
             var pair = (material.shader, uvChannel);
-            if (!PatchedShaders.TryGetValue(pair, out var patched))
+
+            var path = AssetDatabase.GetAssetPath(material.shader);
+            var lastWriteTime = System.IO.File.GetLastWriteTime(path);
+
+            Shader cachedShader = null;
+            
+            if (PatchedShaders.TryGetValue(pair, out var cache))
+            {
+                if (cache.lastChange == lastWriteTime)
+                    cachedShader = cache.shader;
+            }
+            
+            if (cachedShader == null)
             {
                 var patchedShader = ShaderModifier.PatchShaderUVsToClipSpace(material.shader, uvChannel);
-                PatchedShaders[pair] = patchedShader;
+                if (PatchedShaders.ContainsKey(pair))
+                    PatchedShaders.Remove(pair);
+                PatchedShaders[pair] = (patchedShader, lastWriteTime);
                 material.shader = patchedShader;
             }
             else
             {
-                material.shader = patched;
+                material.shader = cachedShader;
             } 
         }
         

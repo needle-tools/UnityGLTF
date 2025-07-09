@@ -551,6 +551,20 @@ namespace UnityGLTF
             doubleSided = (maps.forMaterial.HasProperty("_Cull") && maps.forMaterial.GetInt("_Cull") == (int)CullMode.Off) ||
                           (maps.forMaterial.HasProperty("_CullMode") && maps.forMaterial.GetInt("_CullMode") == (int)CullMode.Off) ||
                           (maps.forMaterial.shader.name.EndsWith("-Double")); // workaround for exporting shaders that are set to double-sided on 2020.3
+     
+            // We don't get Cull Mode from Amplify Shader from the Properties, so we check the shader source 
+            if (ShaderModifier.IsAmplifyShader(maps.forMaterial.shader, out _))
+            {
+                var shaderSource = ShaderModifier.GetShaderSource(maps.forMaterial.shader);
+                if (shaderSource != null)
+                {
+                    if (shaderSource.Contains("Cull Off"))
+                    {
+                        doubleSided = true;
+                    }
+                }
+                
+            }
         }
 
         [MenuItem("CONTEXT/MeshRenderer/UnityGLTF/Switch to converted material")]
