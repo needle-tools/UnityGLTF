@@ -110,6 +110,10 @@ namespace UnityGLTF
             BakeTextureSpace(material, MaterialMode.Emission, resolution, out pbrMaps.emission, mask);
             BakeTextureSpace(material, MaterialMode.Smoothness, resolution, out pbrMaps.smoothness, mask);
             BakeTextureSpace(material, MaterialMode.Specular, resolution, out pbrMaps.specular, mask);
+            
+            pbrMaps.CollectTextureContentInfo();
+            pbrMaps.CleanAllEmptyMaps();
+            
             return pbrMaps;
         }
 
@@ -129,7 +133,6 @@ namespace UnityGLTF
             }
             
             MeshUVs.Clear();
-            
             pbrMaps.mask = BakeUVSpace(renderer, submesh, MaterialMode.SpriteMask, resolution, uvChannel);
             var mask = pbrMaps.mask?.map;
             pbrMaps.albedo = BakeUVSpace(renderer, submesh, MaterialMode.Albedo, resolution, uvChannel, mask);
@@ -140,6 +143,9 @@ namespace UnityGLTF
             pbrMaps.emission = BakeUVSpace(renderer, submesh, MaterialMode.Emission, resolution, uvChannel, mask);
             pbrMaps.smoothness = BakeUVSpace(renderer, submesh, MaterialMode.Smoothness, resolution, uvChannel, mask);
             pbrMaps.specular = BakeUVSpace(renderer, submesh, MaterialMode.Specular, resolution, uvChannel, mask);
+            
+            pbrMaps.CollectTextureContentInfo();
+            pbrMaps.CleanAllEmptyMaps();
             return pbrMaps;
         }
     
@@ -320,14 +326,8 @@ namespace UnityGLTF
             RenderTexture.ReleaseTemporary(rt);
             
             Shader.DisableKeyword(DEBUG_DISPLAY);
-
-            if (CanBakedTextureBeIgnored(bakedTexture, mode, mask))
-            {
-                Object.DestroyImmediate(bakedTexture);
-                return null;
-            }
             
-            return new TextureWithTransform(bakedTexture, offset, scale);
+            return new TextureWithTransform(mode, bakedTexture, offset, scale);
         }
         
         private static void DeactivateGlobalDebugProperties()
@@ -398,8 +398,7 @@ namespace UnityGLTF
                         material.shader = ShaderModifier.PatchAmplifyShaderForTextureSpace(mat.shader);
                 }
             }
-                
-                
+            
             // HACK: disable a view-dependant effect on a particular shader
             if (material.HasFloat("_Fresnel_Normal_Overide"))
                 material.SetFloat("_Fresnel_Normal_Overide", 0f);
@@ -427,14 +426,8 @@ namespace UnityGLTF
             Object.DestroyImmediate(material);
             
             Shader.DisableKeyword(DEBUG_DISPLAY);
-            
-            if (CanBakedTextureBeIgnored(bakedTexture, mode, mask))
-            {
-                Object.DestroyImmediate(bakedTexture);
-                baked = null;
-                return;
-            } 
-            baked = new TextureWithTransform(bakedTexture);
+
+            baked = new TextureWithTransform(mode, bakedTexture);
         }
     }
 }

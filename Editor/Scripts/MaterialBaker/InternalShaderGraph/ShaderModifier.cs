@@ -113,7 +113,7 @@ namespace UnityGLTF
             else
                 shaderSource = PatchDebugViewToAmplifiyShader(shaderSource);
             
-            var shaderAsset = ShaderUtil.CreateShaderAsset(null, shaderSource, true);
+            var shaderAsset = ShaderUtil.CreateShaderAsset(null, shaderSource, false);
             shaderAsset.name = shader.name + "(Patched)";
             // Check for errors
             var errors = ShaderUtil.GetShaderMessages(shaderAsset);
@@ -467,7 +467,7 @@ namespace UnityGLTF
                 return shader;
             }
             
-            var shaderAsset = ShaderUtil.CreateShaderAsset(null, shaderSource, true);
+            var shaderAsset = ShaderUtil.CreateShaderAsset(null, shaderSource, false);
             shaderAsset.name = shader.name +  $"(Patched UV{uvChannel}";
             // Check for errors
             var errors = ShaderUtil.GetShaderMessages(shaderAsset);

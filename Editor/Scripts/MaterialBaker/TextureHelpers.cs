@@ -1,4 +1,9 @@
-﻿using UnityEngine;
+﻿using System;
+using System.Diagnostics;
+using Unity.Collections.LowLevel.Unsafe;
+using Unity.Mathematics;
+using UnityEngine;
+using Debug = UnityEngine.Debug;
 
 namespace UnityGLTF
 {
@@ -55,70 +60,99 @@ namespace UnityGLTF
                    Mathf.Abs(a.a - b.a) < threshold;
         }
         
-        public static bool TextureHasSingleValue(Texture2D texture, out Color singleValue, Texture2D mask = null)
+        public static unsafe bool TextureHasSingleValue(Texture2D texture, out Color singleValue, Texture2D mask = null)
         {
-            singleValue = Color.clear;
-            if (!texture)
-                return false;
-            
-            var pixelData = texture.GetPixels();
-            
-            var maskData = mask?.GetPixels();
+            bool hasSingleValue = false;
+            if (texture.format == TextureFormat.RGBA32)
+            {
+                var pd = texture.GetPixelData<Color32RGBA>(0);
+                BurstMethods.HasSingleValueRGBA((Color32RGBA*)texture.GetPixelData<Color32RGBA>(0).GetUnsafeReadOnlyPtr(),
+                    mask ? (Color24RGB*)mask.GetPixelData<Color24RGB>(0).GetUnsafeReadOnlyPtr() : null,
+                    texture.GetPixelData<Color32RGBA>(0).Length, out hasSingleValue, out Color32RGBA singleColor);
 
-            Color? lastColor = null;
-            
-            for (int i = 0; i < pixelData.Length; i++)
-            {
-                if (maskData != null && maskData[i] == Color.black)
-                    continue; // skip masked pixels
-                
-                if (lastColor.HasValue && !ColorProximity(pixelData[i], lastColor.Value))
-                {
-                    singleValue = Color.clear;
-                    return false; // found different color
-                }
-   
-                lastColor = pixelData[i];
-                
+                singleValue = singleColor.ToColor();
             }
-            if (lastColor == null)
+            else if (texture.format == TextureFormat.RGB24)
             {
+                var pd = texture.GetPixelData<Color24RGB>(0);
+                BurstMethods.HasSingleValueRGB((Color24RGB*)texture.GetPixelData<Color24RGB>(0).GetUnsafeReadOnlyPtr(),
+                    mask ? (Color24RGB*)mask.GetPixelData<Color24RGB>(0).GetUnsafeReadOnlyPtr() : null,
+                    texture.GetPixelData<Color24RGB>(0).Length, out hasSingleValue, out Color24RGB singleColor);
+
+                singleValue = singleColor.ToColor();
+            }
+            else if (texture.format == TextureFormat.RGBAFloat)
+            {
+                var pd = texture.GetPixelData<float4>(0);
+                BurstMethods.HasSingleValueRGBAFloat((float4*)texture.GetPixelData<float4>(0).GetUnsafeReadOnlyPtr(),
+                    mask ? (Color24RGB*)mask.GetPixelData<Color24RGB>(0).GetUnsafeReadOnlyPtr() : null,
+                    texture.GetPixelData<float4>(0).Length, out hasSingleValue, out float4 singleColor);
+
+                singleValue = new Color(singleColor.x, singleColor.y, singleColor.z, singleColor.w);
+            }
+            else
+            {
+                Debug.LogError("Unsupported texture format for single value check: " + texture.format);
                 singleValue = Color.clear;
-                return false; // no pixels found
+                return false;
             }
-            
-            singleValue = lastColor.Value;
-
-            return true;
+            return hasSingleValue;
         }
         
-        public static bool IsTextureEmpty(Texture2D texture, bool ignoreAlpha = true, Texture2D mask = null)
+        public static unsafe bool IsTextureEmpty(Texture2D texture, bool ignoreAlpha = true, Texture2D mask = null)
         {
-            var pixelData = texture.GetPixelData<Color32>(0);
-            var maskData = mask?.GetPixels();
-
-            float proximityThreshold = 0.001f; // threshold for color proximity check
-            bool hasData = false;
-            for (int i = 0; i < pixelData.Length; i++)
+            bool isEmpty = false;
+            if (texture.format == TextureFormat.RGBA32)
             {
-                if (maskData != null && maskData[i] == Color.black)
-                    continue; // skip masked pixels
-
-                hasData |= (!ignoreAlpha && pixelData[i].a > proximityThreshold) || pixelData[i].r > proximityThreshold || pixelData[i].g > proximityThreshold || pixelData[i].b > proximityThreshold;
-                if (hasData)
-                    break;
+                var pd = texture.GetPixelData<Color32RGBA>(0);
+                BurstMethods.IsTextureEmptyRGBA((Color32RGBA*)texture.GetPixelData<Color32RGBA>(0).GetUnsafeReadOnlyPtr(),
+                    mask ? (Color24RGB*)mask.GetPixelData<Color24RGB>(0).GetUnsafeReadOnlyPtr() : null, 
+                    texture.GetPixelData<Color32RGBA>(0).Length, 
+                    ignoreAlpha, 
+                    out isEmpty );
             }
-
-            return !hasData;
+            else
+            if (texture.format == TextureFormat.RGB24)
+            {
+                var pd = texture.GetPixelData<Color24RGB>(0);
+                BurstMethods.IsTextureEmptyRGB((Color24RGB*)texture.GetPixelData<Color24RGB>(0).GetUnsafeReadOnlyPtr(),
+                    mask ? (Color24RGB*)mask.GetPixelData<Color24RGB>(0).GetUnsafeReadOnlyPtr() : null,
+                    texture.GetPixelData<Color24RGB>(0).Length, 
+                    out isEmpty );
+            }
+            else
+            if (texture.format == TextureFormat.RGBAFloat)
+            {
+                var pd = texture.GetPixelData<float4>(0);
+                BurstMethods.IsTextureEmptyRGBAFloat((float4*)texture.GetPixelData<float4>(0).GetUnsafeReadOnlyPtr(),
+                    mask ? (Color24RGB*)mask.GetPixelData<Color24RGB>(0).GetUnsafeReadOnlyPtr() : null,
+                    texture.GetPixelData<float4>(0).Length,
+                    ignoreAlpha,
+                    out isEmpty );
+            }
+            else
+            {
+                Debug.LogError("Unsupported texture format for emptiness check: " + texture.format);
+            }
+            Debug.Log($"IsTextureEmpty took {isEmpty} for {texture.name} with format {texture.format}");
+            return isEmpty;
         }
         
         public static RenderTexture CreateRenderTextureForMode(MaterialMode mode, TextureResolution resolution)
         {
             bool useHdr = mode == MaterialMode.Emission;
             var isLinear = BakeHelpers.IsDebugMaterialModeInLinear(mode);
-            var rt = RenderTexture.GetTemporary(resolution.width, resolution.height, 0, useHdr ? RenderTextureFormat.DefaultHDR : RenderTextureFormat.ARGB32, isLinear ? RenderTextureReadWrite.Linear : RenderTextureReadWrite.sRGB);
+            RenderTexture rt;
+            if (mode == MaterialMode.NormalTangentSpace)
+            {
+                rt = RenderTexture.GetTemporary(resolution.width, resolution.height, 0, RenderTextureFormat.ARGBFloat, isLinear ? RenderTextureReadWrite.Linear : RenderTextureReadWrite.sRGB);
+                
+            }
+            else
+                rt = RenderTexture.GetTemporary(resolution.width, resolution.height, 0, useHdr ? RenderTextureFormat.DefaultHDR : RenderTextureFormat.ARGB32, isLinear ? RenderTextureReadWrite.Linear : RenderTextureReadWrite.sRGB);
+
             rt.filterMode = FilterMode.Bilinear;
-            rt.antiAliasing = 3;
+            rt.antiAliasing = 2;
             return rt;
         }
 
@@ -126,8 +160,14 @@ namespace UnityGLTF
         {
             bool useHdr = mode == MaterialMode.Emission;
             var isLinear = BakeHelpers.IsDebugMaterialModeInLinear(mode);
-            
-            var bakeTex = new Texture2D(resolution.width, resolution.height, useHdr ? TextureFormat.RGBAFloat : TextureFormat.RGB24, false, isLinear);
+
+            Texture2D bakeTex = null;
+            if (mode == MaterialMode.NormalTangentSpace)
+            {
+                bakeTex = new Texture2D(resolution.width, resolution.height, TextureFormat.RGBAFloat, false, true);
+            }
+            else
+                bakeTex = new Texture2D(resolution.width, resolution.height, useHdr ? TextureFormat.RGBAFloat : TextureFormat.RGB24, false, isLinear);
             bakeTex.name = $"Baked {mode}";
             bakeTex.wrapMode = TextureWrapMode.Repeat;
             bakeTex.filterMode = FilterMode.Bilinear;

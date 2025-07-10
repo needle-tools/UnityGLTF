@@ -1,6 +1,17 @@
 ﻿using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using Unity.Burst;
+using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
+using Unity.Jobs;
+using Unity.Jobs.LowLevel.Unsafe;
+using Unity.Mathematics;
 using UnityEditor;
 using UnityEngine;
+using UnityGLTF;
+using Object = UnityEngine.Object;
 #if HAVE_URP
 using UnityEngine.Rendering.Universal;
 #endif
@@ -28,75 +39,398 @@ namespace UnityGLTF
         SpriteMask,
     }
 
+    public class TextureContentInfo
+    {
+        public bool isSingleColor = false;
+        public Color singleColor;
+        public bool isEmpty = false;
+    }
+    
     public class TextureWithTransform
     {
         public Texture2D map = null;
         public Vector2 offset = Vector2.zero;
         public Vector2 scale = Vector2.one;
 
+        public TextureContentInfo contentInfo = null;
+        public MaterialMode materialMode = MaterialMode.Albedo;
+        
         public bool hasDefaultTransform
         {
             get => offset == Vector2.zero && scale == Vector2.one;
         }
 
-        public TextureWithTransform()
+        public TextureWithTransform(MaterialMode mode)
         {
+            this.materialMode = mode;
         }
 
-        public TextureWithTransform(Texture2D map)
+        public TextureWithTransform(MaterialMode mode, Texture2D map)
         {
             this.map = map;
+            this.materialMode = mode;
         }
 
-        public TextureWithTransform(Texture2D map, Vector2 offset, Vector2 scale)
+        public TextureWithTransform(MaterialMode mode, Texture2D map, Vector2 offset, Vector2 scale)
         {
+            this.materialMode = mode;
             this.map = map;
             this.offset = offset;
             this.scale = scale;
         }
     }
 
-    public class PbrMaps
+    public class PbrMaps : IEnumerable<TextureWithTransform>
     {
         public bool ignore = false;
-        public TextureWithTransform albedo;
-        public TextureWithTransform alpha;
-        public TextureWithTransform metallic;
-        public TextureWithTransform normal;
-        public TextureWithTransform occlusion;
-        public TextureWithTransform emission;
-        public TextureWithTransform smoothness;
-        public TextureWithTransform specular;
-        public TextureWithTransform mask;
+        public TextureWithTransform mask = new TextureWithTransform(MaterialMode.SpriteMask);
+        public TextureWithTransform albedo = new TextureWithTransform(MaterialMode.Albedo);
+        public TextureWithTransform alpha = new TextureWithTransform(MaterialMode.Alpha);
+        public TextureWithTransform metallic = new TextureWithTransform(MaterialMode.Metallic);
+        public TextureWithTransform normal = new TextureWithTransform(MaterialMode.NormalTangentSpace);
+        public TextureWithTransform occlusion = new TextureWithTransform(MaterialMode.AmbientOcclusion);
+        public TextureWithTransform emission = new TextureWithTransform(MaterialMode.Emission);
+        public TextureWithTransform smoothness = new TextureWithTransform(MaterialMode.Smoothness);
+        public TextureWithTransform specular = new TextureWithTransform(MaterialMode.Specular);
 
         public Material forMaterial;
         public Mesh forMesh;
 
+        public bool HasMapSingleColor(MaterialMode mode, out Color color)
+        {
+            color = Color.clear;
+            foreach (var t in this)
+            {
+                if (t == null || t.map == null)
+                    continue;
+
+                if (t.materialMode == mode && t.map != null)
+                {
+                    if (t.contentInfo != null)
+                    {
+                        color = t.contentInfo.singleColor;
+                        return t.contentInfo.isSingleColor;
+                    }
+
+                    return false;
+                }
+            }
+
+            return false;
+        }
+        
+        public bool HasMap(MaterialMode mode)
+        {
+            foreach (var t in this)
+            {
+                if (t == null || t.map == null)
+                    continue;
+                
+                if ( t.materialMode == mode && t.map != null)
+                {
+                    if (t.contentInfo != null)
+                        return !t.contentInfo.isEmpty;
+                    
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         public TextureResolution GetTextureSize()
         {
-            if (albedo != null)
-                return new TextureResolution(albedo.map.width, albedo.map.height);
-            if (alpha != null)
-                return new TextureResolution(alpha.map.width, alpha.map.height);
-            if (metallic != null)
-                return new TextureResolution(metallic.map.width, metallic.map.height);
-            if (normal != null)
-                return new TextureResolution(normal.map.width, normal.map.height);
-            if (occlusion != null)
-                return new TextureResolution(occlusion.map.width, occlusion.map.height);
-            if (emission != null)
-                return new TextureResolution(emission.map.width, emission.map.height);
-            if (smoothness != null)
-                return new TextureResolution(smoothness.map.width, smoothness.map.height);
-            if (specular != null)
-                return new TextureResolution(specular.map.width, specular.map.height);
-            if (mask != null)
-                return new TextureResolution(mask.map.width, mask.map.height);
+            foreach (var t in this)
+            {
+                if (t.map == null)
+                    continue;
 
+                if (t.map.width <= 0 || t.map.height <= 0)
+                    continue;
+
+                return new TextureResolution(t.map.width, t.map.height);
+            }
+  
             return new TextureResolution(0, 0);
+        }
+
+        public void CleanAllEmptyMaps()
+        {
+            foreach (var t in this)
+            {
+                if (t.contentInfo != null && t.map != null)
+                {
+                    if (t.contentInfo.isEmpty)
+                    {
+                        Object.DestroyImmediate(t.map);
+                        t.map = null;
+                    }
+                }
+            }
+            
+        }
+
+        public void CollectTextureContentInfo()
+        {
+            var handles = new List<JobHandle>();
+            var results = new Dictionary<TextureWithTransform, ICollectTextureContentInfoResult>();
+
+            foreach (var t in this)
+            {
+                if (t == mask) continue;
+                if (t.map == null) continue;
+
+                if (t.contentInfo == null)
+                {
+                    handles.Add(CreateJob(t, mask, out var jobResult));
+                    results[t] = jobResult;
+                }
+            }
+            
+            if (handles.Count == 0)
+                return;
+            
+            while (true)
+            {
+                if (handles.TrueForAll(h => h.IsCompleted))
+                    break;
+            }
+
+            foreach (var handle in handles)
+                handle.Complete();
+           
+            foreach (var r in results)
+            {
+                r.Key.contentInfo = new TextureContentInfo
+                {
+                    isSingleColor = r.Value.HasSingleColor,
+                    singleColor = r.Value.SingleColor,
+                    isEmpty = r.Key.materialMode == MaterialMode.NormalTangentSpace ?
+                        BakeHelpers.ColorProximity(r.Value.SingleColor, new Color(0.5f, 0.5f, 1f, 1f))
+                        : r.Value.IsEmpty
+
+                };
+                if (r.Value is IDisposable disposable)
+                    disposable.Dispose();
+            }
+            
+        }
+
+        private static unsafe JobHandle CreateJob(TextureWithTransform texture, TextureWithTransform maskTexture, out ICollectTextureContentInfoResult result)
+        {
+            NativeArray<Color24RGB> mask = default;
+            if (maskTexture != null && maskTexture.map != null)
+            {
+                mask = maskTexture.map.GetPixelData<Color24RGB>(0);
+            }
+            
+            if (texture.map.format == TextureFormat.RGB24)
+            {
+                var job = new CollectTextureContentInfoJobRGB24
+                {
+                    singleColorArray = new NativeArray<Color24RGB>(1, Allocator.TempJob),
+                    hasSingleColor = new NativeArray<bool>(1, Allocator.TempJob),
+                    mask =  mask,
+                    textureData = texture.map.GetPixelData<Color24RGB>(0),
+                    length = texture.map.width * texture.map.height,
+                    isEmpty = new NativeArray<bool>(1, Allocator.TempJob),
+                };
+                result = job;
+                return job.Schedule();
+            }
+            else if (texture.map.format == TextureFormat.RGBA32)
+            {
+                var job = new CollectTextureContentInfoJobRGBA32
+                {
+                    singleColorArray = new NativeArray<Color32RGBA>(1, Allocator.TempJob),
+                    hasSingleColor = new NativeArray<bool>(1, Allocator.TempJob),
+                    mask =  mask,
+                    textureData = texture.map.GetPixelData<Color32RGBA>(0),
+                    length = texture.map.width * texture.map.height,
+                    isEmpty = new NativeArray<bool>(1, Allocator.TempJob),
+                    ignoreAlpha = BakeHelpers.HasAlpha(texture.materialMode) 
+                };
+                result = job;
+                return job.Schedule();
+            }
+            else if (texture.map.format == TextureFormat.RGBAFloat)
+            {
+                var job = new CollectTextureContentInfoJobRGBAFloat
+                {
+                    singleColorArray = new NativeArray<float4>(1, Allocator.TempJob),
+                    hasSingleColor = new NativeArray<bool>(1, Allocator.TempJob),
+                    mask =  mask,
+                    textureData = texture.map.GetPixelData<float4>(0),
+                    length = texture.map.width * texture.map.height,
+                    isEmpty = new NativeArray<bool>(1, Allocator.TempJob),
+                    ignoreAlpha = BakeHelpers.HasAlpha(texture.materialMode) 
+                };
+                result = job;
+                return job.Schedule();
+            }
+            else
+            {
+                Debug.LogError("Unsupported texture format: " + texture.map.format);
+                result = null;
+                return default;
+            }
+
+        }
+
+        public IEnumerator<TextureWithTransform> GetEnumerator()
+        {
+            if (albedo != null)
+                yield return albedo;
+            if (alpha != null)
+                yield return alpha;
+            if (metallic != null)
+                yield return metallic;
+            if (normal != null)
+                yield return normal;
+            if (occlusion != null)
+                yield return occlusion;
+            if (emission != null)
+                yield return emission;
+            if (smoothness != null)
+                yield return smoothness;
+            if (specular != null)
+                yield return specular;
+            if (mask != null)
+                yield return mask;
+        }
+
+        IEnumerator IEnumerable.GetEnumerator()
+        {
+            return GetEnumerator();
         }
     }
 
+
+    interface ICollectTextureContentInfoResult
+    {
+        bool HasSingleColor { get; }
+        Color SingleColor { get; }
+        bool IsEmpty { get; }
+    }
+    
+    [BurstCompile(CompileSynchronously = true)]
+    public unsafe struct CollectTextureContentInfoJobRGB24 : IJob, ICollectTextureContentInfoResult, IDisposable
+    {
+        public NativeArray<Color24RGB> singleColorArray;
+        public NativeArray<bool> hasSingleColor;
+        public NativeArray<bool> isEmpty;
+        [ReadOnly]
+        public NativeArray<Color24RGB> mask;
+        [ReadOnly]
+        public NativeArray<Color24RGB> textureData;
+        public int length;
+        
+        public void Execute()
+        {
+            var maskPtr = mask.IsCreated ? (Color24RGB*)mask.GetUnsafeReadOnlyPtr() : null;
+            
+            BurstMethods.HasSingleValueRGB((Color24RGB*)textureData.GetUnsafeReadOnlyPtr(), maskPtr, length, out bool hasSingleValue,
+                out Color24RGB singleColor);
+
+            BurstMethods.IsTextureEmptyRGB((Color24RGB*)textureData.GetUnsafeReadOnlyPtr(), maskPtr, length, out bool isEmpty);
+            this.isEmpty[0] = isEmpty;
+            hasSingleColor[0] = hasSingleValue;
+            singleColorArray[0] = singleColor;
+        }
+
+        public bool HasSingleColor { get => hasSingleColor[0]; }
+        public Color SingleColor { get => singleColorArray[0].ToColor(); }
+
+        public bool IsEmpty { get => isEmpty[0]; }
+        
+        public void Dispose()
+        {
+            singleColorArray.Dispose();
+            hasSingleColor.Dispose();
+            isEmpty.Dispose();
+        }
+    }
+    
+    [BurstCompile(CompileSynchronously = true)]
+    public unsafe struct CollectTextureContentInfoJobRGBA32 : IJob, ICollectTextureContentInfoResult, IDisposable
+    {
+        public NativeArray<Color32RGBA> singleColorArray;
+        public NativeArray<bool> hasSingleColor;
+        public NativeArray<bool> isEmpty;
+        [ReadOnly]
+        public NativeArray<Color24RGB> mask;
+        [ReadOnly]
+        public NativeArray<Color32RGBA> textureData;
+        public int length;
+        public bool ignoreAlpha;
+        
+        public void Execute()
+        {
+            var maskPtr = mask.IsCreated ? (Color24RGB*)mask.GetUnsafeReadOnlyPtr() : null;
+
+            BurstMethods.HasSingleValueRGBA((Color32RGBA*)textureData.GetUnsafeReadOnlyPtr(), maskPtr, length, out bool hasSingleValue,
+                out Color32RGBA singleColor);
+            BurstMethods.IsTextureEmptyRGBA((Color32RGBA*)textureData.GetUnsafeReadOnlyPtr(), maskPtr, length, ignoreAlpha, out bool isEmpty);
+            this.isEmpty[0] = isEmpty;
+
+            hasSingleColor[0] = hasSingleValue;
+            singleColorArray[0] = singleColor;
+        }
+        
+        public bool HasSingleColor { get => hasSingleColor[0]; }
+        public Color SingleColor { get => singleColorArray[0].ToColor(); }
+        
+        public bool IsEmpty { get => isEmpty[0]; }
+
+        public void Dispose()
+        {
+            singleColorArray.Dispose();
+            hasSingleColor.Dispose();
+            isEmpty.Dispose();
+        }
+    }
+    
+    [BurstCompile(CompileSynchronously = true)]
+    public unsafe struct CollectTextureContentInfoJobRGBAFloat : IJob, ICollectTextureContentInfoResult, IDisposable
+    {
+        public NativeArray<float4> singleColorArray;
+        public NativeArray<bool> hasSingleColor;
+        public NativeArray<bool> isEmpty;
+        [ReadOnly]
+        public NativeArray<Color24RGB> mask;
+        [ReadOnly]
+        public NativeArray<float4> textureData;
+        public int length;
+        public bool ignoreAlpha;
+
+        public void Execute()
+        {
+            var maskPtr = mask.IsCreated ? (Color24RGB*)mask.GetUnsafeReadOnlyPtr() : null;
+
+            BurstMethods.HasSingleValueRGBAFloat((float4*)textureData.GetUnsafeReadOnlyPtr(), maskPtr, length, out bool hasSingleValue,
+                out float4 singleColor);
+            
+            BurstMethods.IsTextureEmptyRGBAFloat((float4*)textureData.GetUnsafeReadOnlyPtr(), maskPtr, length, ignoreAlpha, out bool isEmpty);
+            this.isEmpty[0] = isEmpty;
+
+            hasSingleColor[0] = hasSingleValue;
+            singleColorArray[0] = singleColor;
+        }
+        
+        public bool HasSingleColor { get => hasSingleColor[0]; }
+        public Color SingleColor { get => new Color(singleColorArray[0].x, singleColorArray[0].y, singleColorArray[0].z, singleColorArray[0].w); }
+        
+        public bool IsEmpty { get => isEmpty[0]; }
+
+        public void Dispose()
+        {
+            singleColorArray.Dispose();
+            hasSingleColor.Dispose();
+            isEmpty.Dispose();
+        }
+    }
+
+    
     [Serializable]
     public struct TextureResolution : IEquatable<TextureResolution>
     {
