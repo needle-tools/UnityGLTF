@@ -1,7 +1,9 @@
 using System;
 using System.Runtime.CompilerServices;
 using Unity.Burst;
+using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
+using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
 
@@ -100,7 +102,98 @@ namespace UnityGLTF
             emissionColor = new Color(emissionColorFloat4.x, emissionColorFloat4.y, emissionColorFloat4.z, emissionColorFloat4.w);
         }
         
+        [BurstCompile(CompileSynchronously = true)]
+        public static unsafe void OrmCombine(Color24RGB* ormPixels, Color24RGB* met, Color24RGB* smooth, Color24RGB* occl, int start, int end, 
+            bool metallicSingleValueOrEmpty, bool occlusionSingleValueOrEmpty, bool smoothnessSingleValueOrEmpty)
+        {
+            bool hasMetPixels = met != null;
+            bool hasSmoothPixels = smooth != null;
+            bool hasOcclPixels = occl != null;
+            for (int i = start; i <= end; i++)
+            {
+                byte metallicValue = metallicSingleValueOrEmpty ? byte.MaxValue : hasMetPixels ? met[i].r : byte.MaxValue;
+                byte occlusionValue = occlusionSingleValueOrEmpty ? byte.MinValue : hasOcclPixels ? occl[i].r : byte.MinValue;
+                byte smoothnessValue = smoothnessSingleValueOrEmpty ? byte.MaxValue : hasSmoothPixels ? smooth[i].r : byte.MaxValue;
+                ormPixels[i] = new Color24RGB(occlusionValue, (byte)(byte.MaxValue - smoothnessValue), metallicValue);
+            }
+        }
+
+        public static unsafe void AlbedoAlphaCombine(Texture2D result, Texture2D albedo, Texture2D alpha)
+        {
+            AlbedoAlphaCombine((Color32RGBA*)result.GetPixelData<Color32RGBA>(0).GetUnsafePtr(),
+                albedo != null ? (Color24RGB*)albedo.GetPixelData<Color24RGB>(0).GetUnsafeReadOnlyPtr() : null,
+                alpha != null ? (Color24RGB*)alpha.GetPixelData<Color24RGB>(0).GetUnsafeReadOnlyPtr() : null,
+                result.GetPixelData<Color32RGBA>(0).Length);
+        }
         
+        [BurstCompile(CompileSynchronously = true)]
+        public static unsafe void AlbedoAlphaCombine(Color32RGBA* result, Color24RGB* albedo, Color24RGB* alpha, int length)
+        {
+            if (albedo == null)
+            {
+                for (var i = 0; i < length; i++)
+                    result[i] = new Color32RGBA(0, 0, 0, alpha[i].r);
+            }
+            else if (alpha == null)
+            {
+                for (var i = 0; i < length; i++)
+                    result[i] = new Color32RGBA(0, 0, 0, byte.MaxValue);
+            }
+            else
+            {
+                for (var i = 0; i < length; i++)
+                    result[i] = new Color32RGBA(albedo[i].r, albedo[i].g, albedo[i].b, alpha[i].r);
+            }
+        }
+        
+        [BurstCompile(CompileSynchronously = true)]
+        public unsafe struct OrmCombineJob:IJobParallelFor, IDisposable
+        {
+            [NativeDisableParallelForRestriction]
+            public NativeArray<Color24RGB> orm;
+            [ReadOnly] public NativeArray<Color24RGB> metallic;
+            [ReadOnly] public NativeArray<Color24RGB> smoothness;
+            [ReadOnly] public NativeArray<Color24RGB> occlusion;
+            public int length;
+            public bool metallicSingleValueOrEmpty;
+            public bool occlusionSingleValueOrEmpty;
+            public bool smoothnessSingleValueOrEmpty;
+            public NativeArray<int2> ranges;
+            public int parallelCount;
+
+            public void CreateRanges()
+            {
+                var singleRange = length / parallelCount;
+                ranges = new NativeArray<int2>(parallelCount, Allocator.TempJob);
+                var cStart = 0;
+                var cEnd = singleRange;
+                for (int i = 0; i < parallelCount; i++)
+                {
+                    int start = cStart;
+                    int end = cEnd;
+                    ranges[i] = new int2(start, Mathf.Max(length-1, end));
+                        
+                    cStart = cEnd+1;
+                    cEnd = cStart + singleRange;
+                }
+            }
+            
+            public void Execute(int index)
+            {
+                OrmCombine((Color24RGB*)orm.GetUnsafePtr(),
+                    metallic.IsCreated ? (Color24RGB*)metallic.GetUnsafeReadOnlyPtr() : null,
+                    smoothness.IsCreated ? (Color24RGB*)smoothness.GetUnsafeReadOnlyPtr() : null,
+                    occlusion.IsCreated ? (Color24RGB*)occlusion.GetUnsafeReadOnlyPtr() : null,
+                    ranges[index].x, ranges[index].y,
+                    metallicSingleValueOrEmpty, smoothnessSingleValueOrEmpty, occlusionSingleValueOrEmpty);
+            }
+
+            public void Dispose()
+            {
+                ranges.Dispose();
+            }
+        }
+
         [BurstCompile(CompileSynchronously = true)]
         public static unsafe void ConvertEmissionPixels(float4* emissionPixels, int length, out float4 emissionColor)
         {

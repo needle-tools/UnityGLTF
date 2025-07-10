@@ -98,27 +98,50 @@ namespace UnityGLTF
         
         public static PbrMaps BakePBRMaterial(Material material, TextureResolution resolution)
         {
+            void Progress(float f)
+            {
+                EditorUtility.DisplayProgressBar("Material: " + material.name, "Render material textures...", 0.5f);
+            }
+            
             var pbrMaps = new PbrMaps();
             pbrMaps.forMaterial = material;
+            Progress(0f);
             BakeTextureSpace(material, MaterialMode.SpriteMask, resolution, out pbrMaps.mask);
             var mask = pbrMaps.mask?.map;
+            Progress(0.1f);
             BakeTextureSpace(material, MaterialMode.Albedo, resolution, out pbrMaps.albedo, mask);
+            Progress(0.2f);
             BakeTextureSpace(material, MaterialMode.Alpha, resolution, out pbrMaps.alpha, mask);
+            Progress(0.3f);
             BakeTextureSpace(material, MaterialMode.Metallic, resolution, out pbrMaps.metallic, mask);
+            Progress(0.4f);
             BakeTextureSpace(material, MaterialMode.NormalTangentSpace, resolution, out pbrMaps.normal, mask);
+            Progress(0.5f);
             BakeTextureSpace(material, MaterialMode.AmbientOcclusion, resolution, out pbrMaps.occlusion, mask);
+            Progress(0.6f);
             BakeTextureSpace(material, MaterialMode.Emission, resolution, out pbrMaps.emission, mask);
+            Progress(0.7f);
             BakeTextureSpace(material, MaterialMode.Smoothness, resolution, out pbrMaps.smoothness, mask);
+            Progress(0.8f);
             BakeTextureSpace(material, MaterialMode.Specular, resolution, out pbrMaps.specular, mask);
             
+            Progress(0.9f);
+
             pbrMaps.CollectTextureContentInfo();
             pbrMaps.CleanAllEmptyMaps();
             
+            EditorUtility.ClearProgressBar();
             return pbrMaps;
         }
 
         public static PbrMaps BakePBRMaterial(Renderer renderer, int submesh, TextureResolution resolution, int uvChannel = 0)
         {
+            void Progress(float f)
+            {
+                EditorUtility.DisplayProgressBar("Renderer: " + renderer.name, "Render material textures...", 0.5f);
+            }
+
+            
             var pbrMaps = new PbrMaps();
             var materials = renderer.sharedMaterials;
             pbrMaps.forMaterial = materials[submesh % materials.Length];
@@ -133,19 +156,34 @@ namespace UnityGLTF
             }
             
             MeshUVs.Clear();
+            
+            Progress(0f);
+            
             pbrMaps.mask = BakeUVSpace(renderer, submesh, MaterialMode.SpriteMask, resolution, uvChannel);
             var mask = pbrMaps.mask?.map;
+            
+            Progress(0.1f);
             pbrMaps.albedo = BakeUVSpace(renderer, submesh, MaterialMode.Albedo, resolution, uvChannel, mask);
+            Progress(0.2f);
             pbrMaps.alpha = BakeUVSpace(renderer, submesh, MaterialMode.Alpha, resolution, uvChannel, mask);
+            Progress(0.3f);
             pbrMaps.metallic = BakeUVSpace(renderer, submesh, MaterialMode.Metallic, resolution, uvChannel, mask);
+            Progress(0.4f);
             pbrMaps.normal = BakeUVSpace(renderer, submesh, MaterialMode.NormalTangentSpace, resolution, uvChannel, mask);
+            Progress(0.5f);
             pbrMaps.occlusion = BakeUVSpace(renderer, submesh, MaterialMode.AmbientOcclusion, resolution, uvChannel, mask);
+            Progress(0.6f);
             pbrMaps.emission = BakeUVSpace(renderer, submesh, MaterialMode.Emission, resolution, uvChannel, mask);
+            Progress(0.7f);
             pbrMaps.smoothness = BakeUVSpace(renderer, submesh, MaterialMode.Smoothness, resolution, uvChannel, mask);
+            Progress(0.8f);
             pbrMaps.specular = BakeUVSpace(renderer, submesh, MaterialMode.Specular, resolution, uvChannel, mask);
+            Progress(0.9f);
             
             pbrMaps.CollectTextureContentInfo();
             pbrMaps.CleanAllEmptyMaps();
+            
+            EditorUtility.ClearProgressBar();
             return pbrMaps;
         }
     

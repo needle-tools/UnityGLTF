@@ -1,12 +1,18 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using GLTF.Schema;
+using PlasticGui.WorkspaceWindow.Items;
+using Unity.Collections;
+using Unity.Jobs;
+using Unity.Mathematics;
 using UnityEditor;
 using UnityEditor.VersionControl;
 using UnityEngine;
 using UnityEngine.Rendering;
+using Debug = UnityEngine.Debug;
 using Object = UnityEngine.Object;
 using Task = System.Threading.Tasks.Task;
 
@@ -59,8 +65,6 @@ namespace UnityGLTF
 
         public static Material SaveMaps(PbrMaps maps, int uvChannel = 0, bool useTextureSpace = true)
         {
-            var sw = new System.Diagnostics.Stopwatch();
-            sw.Start();
             var material = maps.forMaterial;
             var mesh = maps.forMesh;
 
@@ -101,14 +105,7 @@ namespace UnityGLTF
             var emissionPath = Path.Combine(targetDirectory, fileName + "_emission.png");
             var ormPath = Path.Combine(targetDirectory, fileName + "_orm.png");
             var materialPath = Path.Combine(targetDirectory, fileName + ".mat");
-
-            // if (maps.mask != null)
-            // {
-            //     var maskPath = Path.Combine(targetDirectory, fileName + "_mask.png");
-            //     var maskTexture = maps.mask.map.EncodeToPNG();
-            //     File.WriteAllBytes(maskPath, maskTexture);
-            // }
-
+            
             bool hasBaseColor = false;
             bool hasNormal = false;
             bool hasOrm = false;
@@ -119,34 +116,15 @@ namespace UnityGLTF
             float metallicFactor = 0f;
             float roughnessFactor = 1f;
             var encodeToPng = new List<(string path, Texture2D texture)>();
-
+            
+            EditorUtility.DisplayProgressBar("Material: "+maps.forMaterial.name, "Combining texture maps", 0.5f);
+            
             if (maps.HasMap(MaterialMode.Albedo) || maps.HasMap(MaterialMode.Alpha))
             {
-                var mergedAlbedoAndAlpha =
-                    new Texture2D(textureSize.width, textureSize.height, TextureFormat.RGBA32, false);
+                var mergedAlbedoAndAlpha = new Texture2D(textureSize.width, textureSize.height, TextureFormat.RGBA32, false);
                 mergedAlbedoAndAlpha.name = "Merged Albedo and Alpha";
 
-                Color[] pixels = maps.albedo?.map.GetPixels();
-                Color[] alphaPixels = maps.alpha?.map.GetPixels();
-
-                if (pixels == null)
-                {
-                    pixels = new Color[alphaPixels.Length];
-                    for (var i = 0; i < pixels.Length; i++)
-                        pixels[i] = new Color(0, 0, 0, alphaPixels[i].r);
-                }
-                else if (alphaPixels == null)
-                {
-                    for (var i = 0; i < pixels.Length; i++)
-                        pixels[i].a = 1f;
-                }
-                else
-                {
-                    for (var i = 0; i < pixels.Length; i++)
-                        pixels[i].a = alphaPixels[i].r;
-                }
-
-                mergedAlbedoAndAlpha.SetPixels(pixels);
+                BurstMethods.AlbedoAlphaCombine(mergedAlbedoAndAlpha, maps.albedo?.map, maps.alpha?.map);
 
                 if (BakeHelpers.TextureHasSingleValue(mergedAlbedoAndAlpha, out var singleBaseColorTex, maps.mask?.map))
                 {
@@ -156,8 +134,6 @@ namespace UnityGLTF
                 else
                 {
                     encodeToPng.Add(new (baseColorPath, mergedAlbedoAndAlpha));
-                    //var baseColorPng = mergedAlbedoAndAlpha.EncodeToPNG();
-                    //File.WriteAllBytes(baseColorPath, baseColorPng);
                     hasBaseColor = true;
                 }
             }
@@ -177,9 +153,6 @@ namespace UnityGLTF
                 maps.HasMap(MaterialMode.Smoothness) ||
                 maps.HasMap(MaterialMode.AmbientOcclusion))
             {
-                var orm = new Texture2D(textureSize.width, textureSize.height, TextureFormat.RGBA32, false, true);
-                orm.name = "Occlusion Roughness Metallic";
-
                 metallicHasSingleValue = maps.HasMapSingleColor(MaterialMode.Metallic, out var metallicColorTex);
                 smoothnessHasSingleValue = maps.HasMapSingleColor(MaterialMode.Smoothness, out var smoothnessColorTex);
                 occlusionHasSingleValue = maps.HasMapSingleColor(MaterialMode.AmbientOcclusion, out var occlusionColorTex);
@@ -188,41 +161,13 @@ namespace UnityGLTF
                 smoothnessSingleValueOrEmpty = !maps.HasMap(MaterialMode.Smoothness) || smoothnessHasSingleValue;
                 occlusionSingleValueOrEmpty = !maps.HasMap(MaterialMode.AmbientOcclusion) ||
                                               (occlusionHasSingleValue && occlusionColorTex == Color.white);
-
-                bool createOrmTexture = !occlusionSingleValueOrEmpty || !metallicSingleValueOrEmpty ||
-                                        !smoothnessSingleValueOrEmpty;
-
+                
+                bool createOrmTexture = !occlusionSingleValueOrEmpty || !metallicSingleValueOrEmpty || !smoothnessSingleValueOrEmpty;
+                
                 if (createOrmTexture)
                 {
-                    var metallicPixels = maps.metallic?.map?.GetPixels();
-                    var occlusionPixels = maps.occlusion?.map?.GetPixels();
-                    var smoothnessPixels = maps.smoothness?.map?.GetPixels();
-                    var length = metallicPixels?.Length ?? occlusionPixels?.Length ?? smoothnessPixels?.Length ?? 0;
-                    
-                    var ormPixels = new Color[length];
-                    for (var i = 0; i < length; i++)
-                    {
-                        var metallicValue = metallicSingleValueOrEmpty ? 1 : metallicPixels?[i].r ?? 1f;
-                        var occlusionValue = occlusionSingleValueOrEmpty ? 0 : occlusionPixels?[i].r ?? 0f;
-                        var smoothnessValue = smoothnessSingleValueOrEmpty ? 1 : smoothnessPixels?[i].r ?? 1f;
-                        ormPixels[i] = new Color(occlusionValue, 1 - smoothnessValue, metallicValue);
-                    }
-
-                    if (metallicHasSingleValue)
-                        metallicFactor = metallicColorTex.r;
-                    else if (maps.metallic != null)
-                         metallicFactor = 1f;
-                    
-                    if (smoothnessHasSingleValue)
-                        roughnessFactor = (1f - smoothnessColorTex.r);
-                    else if (maps.smoothness != null)
-                        roughnessFactor = 1f;
-
-                    orm.SetPixels(ormPixels);
-
+                    var orm = CreateORMTexture(maps, out metallicFactor, out roughnessFactor);
                     encodeToPng.Add(new (ormPath, orm));
-                    //var ormTexture = orm.EncodeToPNG();
-                    //File.WriteAllBytes(ormPath, ormTexture);
                     hasOrm = true;
                 }
                 else
@@ -237,47 +182,37 @@ namespace UnityGLTF
             if (maps.HasMap(MaterialMode.NormalTangentSpace))
             {
                 encodeToPng.Add(new (normalPath, maps.normal.map));
-                //var normal = maps.normal.map.EncodeToPNG();
-                //File.WriteAllBytes(normalPath, normal);
                 hasNormal = true;
             }
 
             if (maps.HasMap(MaterialMode.Emission))
             {
                 if (maps.HasMapSingleColor(MaterialMode.Emission, out var emissionColorTex))
-                {
                     emissionColor = emissionColorTex;
-                }
                 else
                 {
                     BurstMethods.ConvertEmissionPixels(maps.emission.map, out emissionColor);
                     encodeToPng.Add(new (emissionPath, maps.emission.map));
-                    //var emission = maps.emission.map.EncodeToPNG();
-                    //File.WriteAllBytes(emissionPath, emission);
                     hasEmission = true;
                 }
             }
+            EditorUtility.ClearProgressBar();
             
-            var tasks = new List<System.Threading.Tasks.Task>();
-            foreach (var pngEncode in encodeToPng)
-            {
-                var gf = pngEncode.texture.graphicsFormat;
-                var bytes = pngEncode.texture.GetRawTextureData<byte>();
-                var width = pngEncode.texture.width;
-                var height = pngEncode.texture.height;
+            // Show Progress Bar
+            EditorUtility.DisplayProgressBar("Material: "+maps.forMaterial.name, "Encoding textures to PNG files", 0.5f);
+            EncodePNGToFile(encodeToPng);
+            EditorUtility.ClearProgressBar();
+            
+            EditorUtility.DisplayProgressBar("Material: "+maps.forMaterial.name, "Importing textures", 0.5f);
+            
+            AssetDatabase.StartAssetEditing();
+            foreach (var png in encodeToPng)
+                AssetDatabase.ImportAsset(png.path, ImportAssetOptions.ForceUncompressedImport);
+            AssetDatabase.StopAssetEditing();
 
-                var newTask = Task.Run(() =>
-                {
-                    var pngBytes = ImageConversion.EncodeNativeArrayToPNG(bytes, gf, (uint)width, (uint)height);
-                    File.WriteAllBytes(pngEncode.path, pngBytes.ToArray());
-                    pngBytes.Dispose();
-                });
-                tasks.Add(newTask);
-            }
-            Task.WhenAll(tasks).Wait();
-
-//            AssetDatabase.Refresh();
-
+            EditorUtility.ClearProgressBar();
+            EditorUtility.DisplayProgressBar("Material: "+maps.forMaterial.name, "Create baked Material", 0.5f);
+            
             // set the import settings for these textures. baseColor and emission are sRGB, normal is normal map, orm is linear
             var newMaterial = AssetDatabase.LoadAssetAtPath<Material>(materialPath);
 
@@ -286,18 +221,13 @@ namespace UnityGLTF
             Shader usingGltfShader = Shader.Find(unlit ? "UnityGLTF/UnlitGraph" : "UnityGLTF/PBRGraph");
             if (!newMaterial)
                 newMaterial = new Material(usingGltfShader);
-            else
-            {
-                if (newMaterial.shader != usingGltfShader)
-                    newMaterial.shader = usingGltfShader;
-            }
+            else if (newMaterial.shader != usingGltfShader) 
+                newMaterial.shader = usingGltfShader;
 
             int maxTextureSize = Mathf.Max(textureSize.width, textureSize.height);
             
             if (hasBaseColor)
             {
-                AssetDatabase.ImportAsset(baseColorPath,ImportAssetOptions.ForceUncompressedImport);
-
                 var baseColorImporter = AssetImporter.GetAtPath(baseColorPath) as TextureImporter;
                 baseColorImporter.textureType = TextureImporterType.Default;
                 baseColorImporter.SaveAndReimport();
@@ -315,8 +245,6 @@ namespace UnityGLTF
             {
                 if (hasNormal)
                 {
-                    AssetDatabase.ImportAsset(normalPath,ImportAssetOptions.ForceUncompressedImport);
-
                     var normalImporter = AssetImporter.GetAtPath(normalPath) as TextureImporter;
                     normalImporter.textureType = TextureImporterType.NormalMap;
                     normalImporter.maxTextureSize = maxTextureSize;
@@ -330,7 +258,6 @@ namespace UnityGLTF
 
                 if (hasEmission)
                 {
-                    AssetDatabase.ImportAsset(emissionPath,ImportAssetOptions.ForceUncompressedImport);
                     var emissionImporter = AssetImporter.GetAtPath(emissionPath) as TextureImporter;
                     emissionImporter.textureType = TextureImporterType.Default;
                     emissionImporter.maxTextureSize = maxTextureSize;
@@ -345,7 +272,6 @@ namespace UnityGLTF
 
                 if (hasOrm)
                 {
-                    AssetDatabase.ImportAsset(ormPath,ImportAssetOptions.ForceUncompressedImport);
                     var ormImporter = AssetImporter.GetAtPath(ormPath) as TextureImporter;
                     ormImporter.textureType = TextureImporterType.Default;
                     ormImporter.sRGBTexture = false;
@@ -364,8 +290,7 @@ namespace UnityGLTF
                     newMaterial.SetTexture("occlusionTexture", null);
 
                 }
-
-
+                
                 var mapper = new PBRGraphMap(newMaterial);
 
                 // Ensure multiplicative defaults#
@@ -385,8 +310,7 @@ namespace UnityGLTF
                 mapper.DoubleSided = doubleSided;
                 mapper.AlphaMode = alphaMode;
                 mapper.AlphaCutoff = alphaCutoff;
-
-
+                
                 if (hasOrm)
                 {
                     if (maps.metallic != null && !maps.metallic.hasDefaultTransform)
@@ -489,7 +413,6 @@ namespace UnityGLTF
                     unlitMapper.BaseColorXOffset = maps.alpha.offset;
                     unlitMapper.BaseColorXScale = maps.alpha.scale;
                     anyTextureTransform = true;
-                    
                 }
                 else
                 {
@@ -500,14 +423,86 @@ namespace UnityGLTF
 
             GLTFMaterialHelper.SetKeyword(newMaterial, "_TEXTURE_TRANSFORM", anyTextureTransform);
             
-            sw.Stop();
-            Debug.Log($"Created new material {newMaterial.name} with textures in {sw.ElapsedMilliseconds} ms");
-            
             if (!AssetDatabase.Contains(newMaterial))
                 AssetDatabase.CreateAsset(newMaterial, materialPath);
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
+            
+            EditorUtility.ClearProgressBar();
+
             return newMaterial;
+        }
+
+        private static Texture2D CreateORMTexture(PbrMaps maps, out float metallicFactor, out float roughnessFactor)
+        {
+            metallicFactor = 0f;
+            roughnessFactor = 1f;
+            var textureSize = maps.GetTextureSize();
+            var orm = new Texture2D( textureSize.width, textureSize.height,  TextureFormat.RGB24, false, true);
+            orm.name = "Occlusion Roughness Metallic";
+
+            var metallicHasSingleValue = maps.HasMapSingleColor(MaterialMode.Metallic, out var metallicColorTex);
+            var smoothnessHasSingleValue = maps.HasMapSingleColor(MaterialMode.Smoothness, out var smoothnessColorTex);
+            var occlusionHasSingleValue = maps.HasMapSingleColor(MaterialMode.AmbientOcclusion, out var occlusionColorTex);
+
+            var metallicSingleValueOrEmpty = !maps.HasMap(MaterialMode.Metallic) || metallicHasSingleValue;
+            var smoothnessSingleValueOrEmpty = !maps.HasMap(MaterialMode.Smoothness) || smoothnessHasSingleValue;
+            var occlusionSingleValueOrEmpty = !maps.HasMap(MaterialMode.AmbientOcclusion) ||
+                                          (occlusionHasSingleValue && occlusionColorTex == Color.white);
+            var ormPixels = orm.GetPixelData<Color24RGB>(0);
+            var metPixels = maps.metallic?.map?.GetPixelData<Color24RGB>(0);
+            var smoothPixels = maps.smoothness?.map?.GetPixelData<Color24RGB>(0);
+            var occlPixels = maps.occlusion?.map?.GetPixelData<Color24RGB>(0);
+            var pixelsLength = metPixels?.Length ?? smoothPixels?.Length ?? occlPixels?.Length ?? 0;
+            
+            var ormJob = new BurstMethods.OrmCombineJob
+            {
+                occlusionSingleValueOrEmpty = occlusionSingleValueOrEmpty,
+                metallicSingleValueOrEmpty = metallicSingleValueOrEmpty,
+                smoothnessSingleValueOrEmpty = smoothnessSingleValueOrEmpty,
+                occlusion = occlPixels.HasValue ? occlPixels.Value : default,
+                metallic = metPixels.HasValue ? metPixels.Value : default,
+                smoothness = smoothPixels.HasValue ? smoothPixels.Value : default,
+                orm = ormPixels,
+                length = pixelsLength,
+                parallelCount = 4
+            };
+            ormJob.CreateRanges();
+            ormJob.Run(ormJob.parallelCount);
+            ormJob.Dispose();
+            
+            if (metallicHasSingleValue)
+                metallicFactor = metallicColorTex.r;
+            else if (maps.metallic != null)
+                metallicFactor = 1f;
+                    
+            if (smoothnessHasSingleValue)
+                roughnessFactor = (1f - smoothnessColorTex.r);
+            else if (maps.smoothness != null)
+                roughnessFactor = 1f;
+
+            return orm;
+        }
+
+        private static void EncodePNGToFile(List<(string path, Texture2D texture)> encodeToPng)
+        {
+            var tasks = new List<System.Threading.Tasks.Task>();
+            foreach (var pngEncode in encodeToPng)
+            {
+                var gf = pngEncode.texture.graphicsFormat;
+                var bytes = pngEncode.texture.GetRawTextureData<byte>();
+                var width = pngEncode.texture.width;
+                var height = pngEncode.texture.height;
+
+                var newTask = Task.Run(() =>
+                {
+                    var pngBytes = ImageConversion.EncodeNativeArrayToPNG(bytes, gf, (uint)width, (uint)height);
+                    File.WriteAllBytes(pngEncode.path, pngBytes.ToArray());
+                    pngBytes.Dispose();
+                });
+                tasks.Add(newTask);
+            }
+            Task.WhenAll(tasks).Wait();
         }
 
         private static void GetMaterialSettings(PbrMaps maps, out bool isUnlit, out AlphaMode alphaMode, out float alphaCutoff,
