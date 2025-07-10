@@ -1,6 +1,4 @@
-﻿using System;
-using System.Diagnostics;
-using Unity.Collections.LowLevel.Unsafe;
+﻿using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
@@ -52,7 +50,7 @@ namespace UnityGLTF
             }
         }
         
-        public static bool ColorProximity(Color a, Color b, float threshold = 0.001f)
+        public static bool ColorProximity(Color a, Color b, float threshold = 0.0001f)
         {
             return Mathf.Abs(a.r - b.r) < threshold &&
                    Mathf.Abs(a.g - b.g) < threshold &&

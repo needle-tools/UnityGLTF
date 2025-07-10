@@ -84,6 +84,8 @@ namespace UnityGLTF
     [BurstCompile(CompileSynchronously = true)]
     public static class BurstMethods
     {
+        private const float ProximityThreshold = 0.0001f; // threshold for color proximity check
+        
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static float4 LinearToGamma(float4 linear)
         {
@@ -111,9 +113,9 @@ namespace UnityGLTF
             bool hasOcclPixels = occl != null;
             for (int i = start; i <= end; i++)
             {
-                byte metallicValue = metallicSingleValueOrEmpty ? byte.MaxValue : hasMetPixels ? met[i].r : byte.MaxValue;
-                byte occlusionValue = occlusionSingleValueOrEmpty ? byte.MinValue : hasOcclPixels ? occl[i].r : byte.MinValue;
-                byte smoothnessValue = smoothnessSingleValueOrEmpty ? byte.MaxValue : hasSmoothPixels ? smooth[i].r : byte.MaxValue;
+                byte metallicValue = metallicSingleValueOrEmpty ? byte.MaxValue : (hasMetPixels ? met[i].r : byte.MaxValue);
+                byte occlusionValue = occlusionSingleValueOrEmpty ? byte.MinValue : (hasOcclPixels ? occl[i].r : byte.MinValue);
+                byte smoothnessValue = smoothnessSingleValueOrEmpty ? byte.MaxValue : (hasSmoothPixels ? smooth[i].r : byte.MaxValue);
                 ormPixels[i] = new Color24RGB(occlusionValue, (byte)(byte.MaxValue - smoothnessValue), metallicValue);
             }
         }
@@ -252,7 +254,6 @@ namespace UnityGLTF
         [BurstCompile(CompileSynchronously = true)]
         public static unsafe void IsTextureEmptyRGBA(Color32RGBA* textureData, Color24RGB* mask, int length, bool ignoreAlpha, out bool isEmpty)
         {
-            float proximityThreshold = 0.001f; // threshold for color proximity check
             isEmpty = false;
             bool hasData = false;
             
@@ -262,7 +263,7 @@ namespace UnityGLTF
             {
                 for (int i = 0; i < length; i++)
                 {
-                    hasData |= (!ignoreAlpha && textureData[i].a > proximityThreshold) || textureData[i].r > proximityThreshold || textureData[i].g > proximityThreshold || textureData[i].b > proximityThreshold;
+                    hasData |= (!ignoreAlpha && textureData[i].a > ProximityThreshold) || textureData[i].r > ProximityThreshold || textureData[i].g > ProximityThreshold || textureData[i].b > ProximityThreshold;
                     if (hasData)
                         break;
                 }
@@ -276,7 +277,7 @@ namespace UnityGLTF
                 if (mask[i].Equals(blackColor))
                     continue; // skip masked pixels
 
-                hasData |= (!ignoreAlpha && textureData[i].a > proximityThreshold) || textureData[i].r > proximityThreshold || textureData[i].g > proximityThreshold || textureData[i].b > proximityThreshold;
+                hasData |= (!ignoreAlpha && textureData[i].a > ProximityThreshold) || textureData[i].r > ProximityThreshold || textureData[i].g > ProximityThreshold || textureData[i].b > ProximityThreshold;
                 if (hasData)
                     break;
             }
@@ -286,7 +287,6 @@ namespace UnityGLTF
         [BurstCompile(CompileSynchronously = true)]
         public static unsafe void IsTextureEmptyRGBAFloat(float4* textureData, Color24RGB* mask, int length, bool ignoreAlpha, out bool isEmpty)
         {
-            float proximityThreshold = 0.001f; // threshold for color proximity check
             isEmpty = false;
             bool hasData = false;
             Color24RGB blackColor = new Color24RGB(0, 0, 0);
@@ -295,7 +295,7 @@ namespace UnityGLTF
             {
                 for (int i = 0; i < length; i++)
                 {
-                    hasData |= (!ignoreAlpha && textureData[i].w > proximityThreshold) || textureData[i].x > proximityThreshold || textureData[i].y > proximityThreshold || textureData[i].z > proximityThreshold;
+                    hasData |= (!ignoreAlpha && textureData[i].w > ProximityThreshold) || textureData[i].x > ProximityThreshold || textureData[i].y > ProximityThreshold || textureData[i].z > ProximityThreshold;
                     if (hasData)
                         break;
                 }
@@ -309,7 +309,7 @@ namespace UnityGLTF
                 if (mask[i].Equals(blackColor))
                     continue; // skip masked pixels
 
-                hasData |= (!ignoreAlpha && textureData[i].w > proximityThreshold) || textureData[i].x > proximityThreshold || textureData[i].y > proximityThreshold || textureData[i].z > proximityThreshold;
+                hasData |= (!ignoreAlpha && textureData[i].w > ProximityThreshold) || textureData[i].x > ProximityThreshold || textureData[i].y > ProximityThreshold || textureData[i].z > ProximityThreshold;
                 if (hasData)
                     break;
             }
@@ -320,7 +320,6 @@ namespace UnityGLTF
         [BurstCompile(CompileSynchronously = true)]
         public static unsafe void IsTextureEmptyRGB(Color24RGB* textureData, Color24RGB* mask, int length, out bool isEmpty)
         {
-            float proximityThreshold = 0.001f; // threshold for color proximity check
             isEmpty = false;
             bool hasData = false;
             Color24RGB blackColor = new Color24RGB(0, 0, 0);
@@ -329,7 +328,7 @@ namespace UnityGLTF
             {
                 for (int i = 0; i < length; i++)
                 {
-                    hasData |= textureData[i].r > proximityThreshold || textureData[i].g > proximityThreshold || textureData[i].b > proximityThreshold;
+                    hasData |= textureData[i].r > ProximityThreshold || textureData[i].g > ProximityThreshold || textureData[i].b > ProximityThreshold;
                     if (hasData)
                         break;
                 }
@@ -343,7 +342,7 @@ namespace UnityGLTF
                 if (mask[i].Equals(blackColor))
                     continue; // skip masked pixels
 
-                hasData |= textureData[i].r > proximityThreshold || textureData[i].g > proximityThreshold || textureData[i].b > proximityThreshold;
+                hasData |= textureData[i].r > ProximityThreshold || textureData[i].g > ProximityThreshold || textureData[i].b > ProximityThreshold;
                 if (hasData)
                     break;
             }
@@ -351,7 +350,7 @@ namespace UnityGLTF
         }
         
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool ColorProximityRGBAFloat(float4 a, float4 b, float threshold = 0.001f)
+        private static bool ColorProximityRGBAFloat(float4 a, float4 b, float threshold = ProximityThreshold)
         {
             return Math.Abs(a.x - b.x) < threshold &&
                    Math.Abs(a.y - b.y) < threshold &&
@@ -360,7 +359,7 @@ namespace UnityGLTF
         }
         
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool ColorProximityRGBA(Color32RGBA a, Color32RGBA b, float threshold = 0.001f)
+        private static bool ColorProximityRGBA(Color32RGBA a, Color32RGBA b, float threshold = ProximityThreshold)
         {
             return Math.Abs(a.r - b.r) < threshold &&
                    Math.Abs(a.g - b.g) < threshold &&
@@ -369,7 +368,7 @@ namespace UnityGLTF
         }
         
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool ColorProximityRGB(Color24RGB a, Color24RGB b, float threshold = 0.001f)
+        private static bool ColorProximityRGB(Color24RGB a, Color24RGB b, float threshold = ProximityThreshold)
         {
             return Math.Abs(a.r - b.r) < threshold &&
                    Math.Abs(a.g - b.g) < threshold &&
