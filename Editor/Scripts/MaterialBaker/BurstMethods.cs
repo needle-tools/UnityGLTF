@@ -185,7 +185,7 @@ namespace UnityGLTF
                     smoothness.IsCreated ? (Color24RGB*)smoothness.GetUnsafeReadOnlyPtr() : null,
                     occlusion.IsCreated ? (Color24RGB*)occlusion.GetUnsafeReadOnlyPtr() : null,
                     ranges[index].x, ranges[index].y,
-                    metallicSingleValueOrEmpty, smoothnessSingleValueOrEmpty, occlusionSingleValueOrEmpty);
+                    metallicSingleValueOrEmpty, occlusionSingleValueOrEmpty, smoothnessSingleValueOrEmpty);
             }
 
             public void Dispose()
