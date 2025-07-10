@@ -58,7 +58,7 @@ namespace UnityGLTF
             var materials = renderer.sharedMaterials;
             foreach (var material in materials)
             {
-                var maps = MaterialBaker.BakePBRMaterial(material, new TextureResolution(2048, 2048));
+                var maps = MaterialBaker.BakePBRMaterial(material, new TextureResolution(2048, 2048), Vector2.one);
                 SaveMaps(maps);
             }
         }

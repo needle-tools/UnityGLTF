@@ -18,7 +18,8 @@ namespace UnityGLTF
         [Header("Baking Settings")]
         public BakeMode bakeMode = BakeMode.TextureSpace;
         public TextureResolution resolution = new TextureResolution(1024, 1024);
-
+        public Vector2 textureTiling = new Vector2(1, 1);
+        
         [SerializeField, HideInInspector] private Material[] lastBakedMaterials = null;
         [SerializeField, HideInInspector] private Texture[] lastBakedTextures = null;
         [SerializeField, HideInInspector] private Material[] orgMaterials = null;
@@ -26,7 +27,7 @@ namespace UnityGLTF
 
         public bool HasBakedMaterials => lastBakedMaterials != null && lastBakedMaterials.Length > 0;
         public bool BakeSettingsChanged => !BakeSettings.Equals(lastBakeSettings);
-        public BakeSettings BakeSettings => new BakeSettings { resolution = resolution, bakeMode = bakeMode };
+        public BakeSettings BakeSettings => new BakeSettings { resolution = resolution, bakeMode = bakeMode, textureTiling = textureTiling };
 
         public bool OriginalMaterialActive
         {

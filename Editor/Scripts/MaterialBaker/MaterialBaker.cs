@@ -52,7 +52,7 @@ namespace UnityGLTF
                             pbrMaps.Add(new PbrMaps { forMaterial = sharedMaterials[i], ignore = true });
                             continue;
                         }
-                        newPbrMaps = BakePBRMaterial(sharedMaterials[i], settings.resolution);
+                        newPbrMaps = BakePBRMaterial(sharedMaterials[i], settings.resolution, settings.textureTiling);
                         if (newPbrMaps != null)
                             pbrMaps.Add(newPbrMaps);
                         else
@@ -96,7 +96,7 @@ namespace UnityGLTF
             return pbrMaps.ToArray();
         }
         
-        public static PbrMaps BakePBRMaterial(Material material, TextureResolution resolution)
+        public static PbrMaps BakePBRMaterial(Material material, TextureResolution resolution, Vector2 tiling)
         {
             void Progress(float f)
             {
@@ -106,24 +106,24 @@ namespace UnityGLTF
             var pbrMaps = new PbrMaps();
             pbrMaps.forMaterial = material;
             Progress(0f);
-            BakeTextureSpace(material, MaterialMode.SpriteMask, resolution, out pbrMaps.mask);
+            BakeTextureSpace(material, MaterialMode.SpriteMask, resolution, tiling, out pbrMaps.mask);
             var mask = pbrMaps.mask?.map;
             Progress(0.1f);
-            BakeTextureSpace(material, MaterialMode.Albedo, resolution, out pbrMaps.albedo, mask);
+            BakeTextureSpace(material, MaterialMode.Albedo, resolution, tiling, out pbrMaps.albedo, mask);
             Progress(0.2f);
-            BakeTextureSpace(material, MaterialMode.Alpha, resolution, out pbrMaps.alpha, mask);
+            BakeTextureSpace(material, MaterialMode.Alpha, resolution, tiling, out pbrMaps.alpha, mask);
             Progress(0.3f);
-            BakeTextureSpace(material, MaterialMode.Metallic, resolution, out pbrMaps.metallic, mask);
+            BakeTextureSpace(material, MaterialMode.Metallic, resolution, tiling, out pbrMaps.metallic, mask);
             Progress(0.4f);
-            BakeTextureSpace(material, MaterialMode.NormalTangentSpace, resolution, out pbrMaps.normal, mask);
+            BakeTextureSpace(material, MaterialMode.NormalTangentSpace, resolution, tiling, out pbrMaps.normal, mask);
             Progress(0.5f);
-            BakeTextureSpace(material, MaterialMode.AmbientOcclusion, resolution, out pbrMaps.occlusion, mask);
+            BakeTextureSpace(material, MaterialMode.AmbientOcclusion, resolution, tiling, out pbrMaps.occlusion, mask);
             Progress(0.6f);
-            BakeTextureSpace(material, MaterialMode.Emission, resolution, out pbrMaps.emission, mask);
+            BakeTextureSpace(material, MaterialMode.Emission, resolution, tiling, out pbrMaps.emission, mask);
             Progress(0.7f);
-            BakeTextureSpace(material, MaterialMode.Smoothness, resolution, out pbrMaps.smoothness, mask);
+            BakeTextureSpace(material, MaterialMode.Smoothness, resolution, tiling, out pbrMaps.smoothness, mask);
             Progress(0.8f);
-            BakeTextureSpace(material, MaterialMode.Specular, resolution, out pbrMaps.specular, mask);
+            BakeTextureSpace(material, MaterialMode.Specular, resolution, tiling, out pbrMaps.specular, mask);
             
             Progress(0.9f);
 
@@ -424,7 +424,7 @@ namespace UnityGLTF
             return index;
         }
         
-        private static void BakeTextureSpace(Material mat, MaterialMode mode, TextureResolution resolution, out TextureWithTransform baked, Texture2D mask = null)
+        private static void BakeTextureSpace(Material mat, MaterialMode mode, TextureResolution resolution, Vector2 tiling, out TextureWithTransform baked, Texture2D mask = null)
         {
             bool isLinear = BakeHelpers.IsDebugMaterialModeInLinear(mode);
             var material = new Material(mat);
@@ -452,7 +452,48 @@ namespace UnityGLTF
             // Render mesh with bakeMat to bakedTexture
             var renderTexture = BakeHelpers.CreateRenderTextureForMode(mode, resolution);
             var forwardPassIndex = FindForwardPassIndex(material);
-            Graphics.Blit(bakedTexture, renderTexture, material, forwardPassIndex);
+            if (tiling != Vector2.one)
+            {
+                CommandBuffer cmd = new CommandBuffer();
+                cmd.SetRenderTarget(renderTexture);
+                // Create FullScreen quad with tiling
+                
+                float topU = 1.0f / tiling.x;
+                float bottomU = 0.0f;
+                float topV = 1.0f / tiling.y;
+                float bottomV = 0.0f;
+
+                var s_FullscreenMesh = new Mesh { name = "Fullscreen Quad" };
+                s_FullscreenMesh.SetVertices(new List<Vector3>
+                {
+                    new Vector3(-1.0f, -1.0f, 0.0f),
+                    new Vector3(-1.0f,  1.0f, 0.0f),
+                    new Vector3(1.0f, -1.0f, 0.0f),
+                    new Vector3(1.0f,  1.0f, 0.0f)
+                });
+
+                s_FullscreenMesh.SetUVs(0, new List<Vector2>
+                {
+                    new Vector2(bottomU, bottomV),
+                    new Vector2(bottomU, topV),
+                    new Vector2(topU, bottomV),
+                    new Vector2(topU, topV)
+                });
+                
+
+                s_FullscreenMesh.SetIndices(new[] { 0, 1, 2, 2, 1, 3 }, MeshTopology.Triangles, 0, false);
+                s_FullscreenMesh.UploadMeshData(true);
+                
+                cmd.SetViewProjectionMatrices(Matrix4x4.identity, Matrix4x4.Ortho(-1, 1, -1, 1, -1, 1));
+                cmd.EnableShaderKeyword(DEBUG_DISPLAY);
+                cmd.SetGlobalFloat("_DebugMaterialMode", (int) mode.ToRPSpecific());
+                
+                cmd.DrawMesh(s_FullscreenMesh, Matrix4x4.identity, material, 0, forwardPassIndex);
+                Graphics.ExecuteCommandBuffer(cmd);
+                Object.DestroyImmediate(s_FullscreenMesh);
+            }
+            else
+                Graphics.Blit(bakedTexture, renderTexture, material, forwardPassIndex);
            
             RenderTexture.active = renderTexture;
 
@@ -465,7 +506,7 @@ namespace UnityGLTF
             
             Shader.DisableKeyword(DEBUG_DISPLAY);
 
-            baked = new TextureWithTransform(mode, bakedTexture);
+            baked = new TextureWithTransform(mode, bakedTexture, Vector2.one, tiling);
         }
     }
 }

@@ -542,7 +542,7 @@ namespace UnityGLTF
     {
         public BakeMode bakeMode = BakeMode.TextureSpace;
         public TextureResolution resolution = new TextureResolution(1024, 1024);
-
+        public Vector2 textureTiling = Vector2.one;
 
         public bool Equals(BakeSettings other)
         {
