@@ -117,6 +117,8 @@ namespace UnityGLTF
             bool useHdr = mode == MaterialMode.Emission;
             var isLinear = BakeHelpers.IsDebugMaterialModeInLinear(mode);
             var rt = RenderTexture.GetTemporary(resolution.width, resolution.height, 0, useHdr ? RenderTextureFormat.DefaultHDR : RenderTextureFormat.ARGB32, isLinear ? RenderTextureReadWrite.Linear : RenderTextureReadWrite.sRGB);
+            rt.filterMode = FilterMode.Bilinear;
+            rt.antiAliasing = 3;
             return rt;
         }
 
