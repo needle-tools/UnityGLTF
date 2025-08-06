@@ -55,6 +55,112 @@ namespace UnityGLTF
 		// These occlusion maps are baked into metallic roughness map (channel R)
 		private HashSet<Material> _occlusionBakedTextures = new HashSet<Material>();
 
+
+		private bool TryGetColorFromMaterial(Material material, out Color color, params string[] propertyNames)
+		{
+			color = Color.white;
+			foreach (var name in propertyNames)
+			{
+				if (material.HasProperty(name))
+				{
+					color = material.GetColor(name);
+					return true;
+				}
+			}
+			return false;
+		}
+
+		private bool TryGetFloatFormMaterial(Material material, out float value, params string[] propertyNames)
+		{
+			value = 0f;
+			foreach (var name in propertyNames)
+			{
+				if (material.HasProperty(name))
+				{
+					value = material.GetFloat(name);
+					return true;
+				}
+			}
+			return false;
+		}
+		
+		private bool TryGetIntFormMaterial(Material material, out int value, params string[] propertyNames)
+		{
+			value = 0;
+			foreach (var name in propertyNames)
+			{
+				if (material.HasProperty(name))
+				{
+					value = material.GetInteger(name);
+					return true;
+				}
+			}
+			return false;
+		}
+		
+		private bool HasPropertyInMaterial(Material material, params string[] propertyNames)
+		{
+			if (material == null) return false;
+
+			foreach (var name in propertyNames)
+			{
+				if (material.HasProperty(name))
+				{
+					return true;
+				}
+			}
+			return false;
+		}
+
+		private bool TryGetTextureScaleOffset(Material material, out Vector2 scale, out Vector2 offset,
+			params string[] textureNames)
+		{
+			scale = Vector2.one;
+			offset = Vector2.zero;
+
+			foreach (var name in textureNames)
+			{
+				if (material.HasProperty(name))
+				{
+					scale = material.GetTextureScale(name);
+					offset = material.GetTextureOffset(name);
+					return true;
+				}
+			}
+			return false;
+			
+		}
+		
+		private bool TryGetTextureFromMaterial(Material material, out Texture texture, out string texturePropName, params string[] propertyNames)
+		{
+			texture = null;
+			texturePropName = null;
+			foreach (var name in propertyNames)
+			{
+				if (material.HasProperty(name))
+				{
+					texturePropName = name;
+					texture = material.GetTexture(name);
+					return true;
+				}
+			}
+			return false;
+		}
+
+		private bool HasKeywordEnabled(Material material, params string[] keywords)
+		{
+			if (material == null) return false;
+
+			foreach (var keyword in keywords)
+			{
+				if (material.IsKeywordEnabled(keyword))
+				{
+					return true;
+				}
+			}
+			return false;
+		}
+		
         public MaterialId ExportMaterial(Material materialObj)
 		{
 			MaterialId id = GetMaterialId(_root, materialObj);
@@ -109,12 +215,9 @@ namespace UnityGLTF
 			switch (materialObj.GetTag("RenderType", false, ""))
 			{
 				case "TransparentCutout":
-					if (materialObj.HasProperty("alphaCutoff"))
-						material.AlphaCutoff = materialObj.GetFloat("alphaCutoff");
-					else if (materialObj.HasProperty("_AlphaCutoff"))
-						material.AlphaCutoff = materialObj.GetFloat("_AlphaCutoff");
-					else if (materialObj.HasProperty("_Cutoff"))
-						material.AlphaCutoff = materialObj.GetFloat("_Cutoff");
+					if (TryGetFloatFormMaterial(materialObj, out var alphaCutOff, UnityMaterialProperties.AlphaCutOff))
+						material.AlphaCutoff = alphaCutOff;
+					
 					material.AlphaMode = AlphaMode.MASK;
 					break;
 				case "Transparent":
@@ -126,12 +229,8 @@ namespace UnityGLTF
 					    (isBirp && materialObj.IsKeywordEnabled("_BUILTIN_ALPHATEST_ON")) ||
 					    materialObj.renderQueue == 2450)
 					{
-						if (materialObj.HasProperty("alphaCutoff"))
-							material.AlphaCutoff = materialObj.GetFloat("alphaCutoff");
-						else if (materialObj.HasProperty("_AlphaCutoff"))
-							material.AlphaCutoff = materialObj.GetFloat("_AlphaCutoff");
-						else if (materialObj.HasProperty("_Cutoff"))
-							material.AlphaCutoff = materialObj.GetFloat("_Cutoff");
+						if (TryGetFloatFormMaterial(materialObj, out var alphaCutOff2, UnityMaterialProperties.AlphaCutOff))
+							material.AlphaCutoff = alphaCutOff2;
 						material.AlphaMode = AlphaMode.MASK;
 					}
 					else
@@ -141,11 +240,13 @@ namespace UnityGLTF
 					break;
 			}
 
+			
 			material.DoubleSided = (materialObj.HasProperty("_Cull") && materialObj.GetInt("_Cull") == (int)CullMode.Off) ||
 			                       (materialObj.HasProperty("_CullMode") && materialObj.GetInt("_CullMode") == (int)CullMode.Off) ||
 			                       (materialObj.shader.name.EndsWith("-Double")); // workaround for exporting shaders that are set to double-sided on 2020.3
 
-			if (materialObj.IsKeywordEnabled("_EMISSION") || materialObj.IsKeywordEnabled("EMISSION") || materialObj.HasProperty("emissiveTexture") || materialObj.HasProperty("_EmissiveTexture") || materialObj.HasProperty("_EmissiveColorMap"))
+			if (HasKeywordEnabled(materialObj, UnityMaterialProperties.EmissionKeywords)
+			    || TryGetTextureFromMaterial(materialObj, out _, out _, UnityMaterialProperties.EmissiveTexture))
 			{
 				// In Gamma space, some materials treat their emissive color inputs differently than in Linear space.
 				// This is super confusing when converting materials, but we also need to handle it correctly here.
@@ -155,8 +256,9 @@ namespace UnityGLTF
 					materialObj.shader.name == "Universal Render Pipeline/Lit" ||
 					materialObj.shader.name == "Universal Render Pipeline/Simple Lit" ||
 					materialObj.shader.name == "Universal Render Pipeline/Unlit");
-				                                             
-				if (materialObj.HasProperty("_EmissionColor") || materialObj.HasProperty("emissiveFactor") || materialObj.HasProperty("_EmissiveFactor") || materialObj.HasProperty("_UseEmissiveIntensity"))
+				        
+				if (TryGetColorFromMaterial(materialObj, out var emissionColor, UnityMaterialProperties.EmissionColor)
+				    || materialObj.HasProperty("_UseEmissiveIntensity"))
 				{
 					var emissiveAmount = Color.black;
 					var maxEmissiveAmount = 0f;
@@ -176,9 +278,7 @@ namespace UnityGLTF
 					}
 					else
 					{
-						var c = materialObj.HasProperty("emissiveFactor") ? materialObj.GetColor("emissiveFactor") :
-							materialObj.HasProperty("_EmissionColor") ? materialObj.GetColor("_EmissionColor") :
-							materialObj.GetColor("_EmissiveFactor");
+						var c = emissionColor;
 						DecomposeEmissionColor(c, out emissiveAmount, out maxEmissiveAmount);
 					}
 					
@@ -199,16 +299,8 @@ namespace UnityGLTF
 					}
 				}
 
-				if (materialObj.HasProperty("_EmissionMap") || materialObj.HasProperty("_EmissiveMap") || materialObj.HasProperty("_EmissiveTexture") || materialObj.HasProperty("emissiveTexture") || materialObj.HasProperty("_EmissiveColorMap"))
+				if (TryGetTextureFromMaterial(materialObj, out var emissionTex, out var propName, UnityMaterialProperties.EmissiveTexture))
 				{
-					var propName = materialObj.HasProperty("emissiveTexture") ? "emissiveTexture" :
-						materialObj.HasProperty("_EmissiveTexture") ? "_EmissiveTexture" :
-						materialObj.HasProperty("_EmissionMap") ? "_EmissionMap" :
-						materialObj.HasProperty("_EmissiveColorMap") ? "_EmissiveColorMap" :
-						"_EmissiveMap";
-
-					var emissionTex = materialObj.GetTexture(propName);
-
 					if (emissionTex)
 					{
 						if(emissionTex is Texture2D)
@@ -245,44 +337,23 @@ namespace UnityGLTF
 					}
 				}
 			}
-			if (materialObj.HasProperty("normalTexture") || materialObj.HasProperty("_NormalTexture"))
+			else
+			if (TryGetTextureFromMaterial(materialObj, out var normalTexture, out var normalTexProp, UnityMaterialProperties.NormalMap))
 			{
-				var propName = materialObj.HasProperty("normalTexture") ? "normalTexture" : "_NormalTexture";
-				var normalTex = materialObj.GetTexture(propName);
-
-				if (normalTex)
+				if (normalTexture)
 				{
-					if(normalTex is Texture2D)
+					if(normalTexture is Texture2D)
 					{
-						material.NormalTexture = ExportNormalTextureInfo(normalTex, TextureMapType.Normal, materialObj);
-						ExportTextureTransform(material.NormalTexture, materialObj, propName);
+						material.NormalTexture = ExportNormalTextureInfo(normalTexture, TextureMapType.Normal, materialObj);
+						ExportTextureTransform(material.NormalTexture, materialObj, normalTexProp);
 					}
 					else
 					{
-						Debug.LogFormat(LogType.Error, "Can't export a {0} normal texture in material {1}", normalTex.GetType(), materialObj.name);
+						Debug.LogFormat(LogType.Error, "Can't export a {0} normal texture in material {1}", normalTexture.GetType(), materialObj.name);
 					}
 				}
 			}
-
-			if (materialObj.HasProperty("_NormalMap"))
-			{
-				var propName = "_NormalMap";
-				var normalTex = materialObj.GetTexture(propName);
-
-				if (normalTex)
-				{
-					if (normalTex is Texture2D)
-					{
-						material.NormalTexture = ExportNormalTextureInfo(normalTex, TextureMapType.Normal, materialObj);
-						ExportTextureTransform(material.NormalTexture, materialObj, propName);
-					}
-					else
-					{
-						Debug.LogFormat(LogType.Error, "Can't export a {0} normal texture in material {1}", normalTex.GetType(), materialObj.name);
-					}
-				}
-			}
-
+			
 			if (IsUnlit(materialObj))
 			{
 				ExportUnlit( material, materialObj );
@@ -299,65 +370,30 @@ namespace UnityGLTF
 			{
 				material.CommonConstant = ExportCommonConstant(materialObj);
 			}
-			else if (materialObj.HasProperty("_BaseMap"))
+			else
 			{
-				var mainTex = materialObj.GetTexture("_BaseMap");
-				material.PbrMetallicRoughness = new PbrMetallicRoughness()
+				if (TryGetTextureFromMaterial(materialObj, out var baseColTex, out var baseColTexProp,
+					    UnityMaterialProperties.BaseColorTexture))
 				{
-					BaseColorFactor = (materialObj.HasProperty("_BaseColor")
-						? materialObj.GetColor("_BaseColor")
-						: Color.white).ToNumericsColorLinear(),
-					BaseColorTexture = mainTex ? ExportTextureInfo(mainTex, TextureMapType.BaseColor) : null
-				};
-				ExportTextureTransform(material.PbrMetallicRoughness.BaseColorTexture, materialObj, "_BaseMap");
+					material.PbrMetallicRoughness = new PbrMetallicRoughness()
+					{
+						BaseColorFactor = (TryGetColorFromMaterial(materialObj, out var bCol,
+							UnityMaterialProperties.BaseColor)
+							? bCol
+							: Color.white).ToNumericsColorLinear(),
+						BaseColorTexture = baseColTex ? ExportTextureInfo(baseColTex, TextureMapType.BaseColor) : null
+					};
+					ExportTextureTransform(material.PbrMetallicRoughness.BaseColorTexture, materialObj, baseColTexProp);
+				}
+
+				
+				if (materialObj.HasProperty("_MainTex")) //else export main texture
+					material.DoubleSided = true;
 			}
-			else if (materialObj.HasProperty("_ColorTexture"))
+
+			if (TryGetTextureFromMaterial(materialObj, out var occTex, out var occlTexProp, UnityMaterialProperties.OcclusionTexture))
 			{
-				var mainTex = materialObj.GetTexture("_ColorTexture");
-				material.PbrMetallicRoughness = new PbrMetallicRoughness()
-				{
-					BaseColorFactor = (materialObj.HasProperty("_BaseColor")
-						? materialObj.GetColor("_BaseColor")
-						: Color.white).ToNumericsColorLinear(),
-					BaseColorTexture = mainTex ? ExportTextureInfo(mainTex, TextureMapType.BaseColor) : null
-				};
-				ExportTextureTransform(material.PbrMetallicRoughness.BaseColorTexture, materialObj, "_ColorTexture");
-			}
-            else if (materialObj.HasProperty("_MainTex")) //else export main texture
-            {
-                var mainTex = materialObj.GetTexture("_MainTex");
-
-                if (mainTex != null)
-                {
-                    material.PbrMetallicRoughness = new PbrMetallicRoughness() { MetallicFactor = 0, RoughnessFactor = 1.0f };
-                    material.PbrMetallicRoughness.BaseColorTexture = ExportTextureInfo(mainTex, TextureMapType.BaseColor);
-                    ExportTextureTransform(material.PbrMetallicRoughness.BaseColorTexture, materialObj, "_MainTex");
-                }
-                if (materialObj.HasProperty("_TintColor")) //particles use _TintColor instead of _Color
-                {
-                    if (material.PbrMetallicRoughness == null)
-                        material.PbrMetallicRoughness = new PbrMetallicRoughness() { MetallicFactor = 0, RoughnessFactor = 1.0f };
-
-                    material.PbrMetallicRoughness.BaseColorFactor = materialObj.GetColor("_TintColor").ToNumericsColorLinear();
-                }
-                else if (materialObj.HasProperty("_Color"))
-                {
-	                if (material.PbrMetallicRoughness == null)
-		                material.PbrMetallicRoughness = new PbrMetallicRoughness() { MetallicFactor = 0, RoughnessFactor = 1.0f };
-
-	                material.PbrMetallicRoughness.BaseColorFactor = materialObj.GetColor("_Color").ToNumericsColorLinear();
-                }
-                material.DoubleSided = true;
-            }
-
-			if (materialObj.HasProperty("_OcclusionMap") || materialObj.HasProperty("occlusionTexture") || materialObj.HasProperty("_OcclusionTexture") || materialObj.HasProperty("_MaskMap"))
-			{
-				var propName = materialObj.HasProperty("occlusionTexture") ? "occlusionTexture" :
-					materialObj.HasProperty("_OcclusionTexture") ? "_OcclusionTexture" :
-					materialObj.HasProperty("_MaskMap") ? "_MaskMap" :
-					"_OcclusionMap";
-
-				var occTex = materialObj.GetTexture(propName);
+				
 				if (occTex)
 				{
 					if(occTex is Texture2D)
@@ -373,11 +409,12 @@ namespace UnityGLTF
 						}
 						
 						material.OcclusionTexture = ExportOcclusionTextureInfo(occTex, TextureMapType.Occlusion, materialObj, sharedTextureId);
-						ExportTextureTransform(material.OcclusionTexture, materialObj, propName);
-						material.OcclusionTexture.TexCoord = materialObj.HasProperty("occlusionTextureTexCoord") ?
-							Mathf.RoundToInt(materialObj.GetFloat("occlusionTextureTexCoord")) :
-							materialObj.HasProperty("_OcclusionTextureTexCoord") ?
-								Mathf.RoundToInt(materialObj.GetFloat("_OcclusionTextureTexCoord")) : 0;
+						ExportTextureTransform(material.OcclusionTexture, materialObj, occlTexProp);
+
+						if (TryGetFloatFormMaterial(materialObj, out var ooclTexCoord, "occlusionTextureTexCoord", "_OcclusionTextureTexCoord"))
+							material.OcclusionTexture.TexCoord = Mathf.RoundToInt(ooclTexCoord);
+						else
+							material.OcclusionTexture.TexCoord = 0;
 					}
 					else
 					{
@@ -417,11 +454,7 @@ namespace UnityGLTF
 
         private bool IsPBRMetallicRoughness(Material material)
         {
-	        return (material.HasProperty("_Metallic") || material.HasProperty("_MetallicFactor") || material.HasProperty("metallicFactor")) &&
-	               (material.HasProperty("_MetallicGlossMap") || material.HasProperty("_Glossiness") ||
-	                material.HasProperty("_Roughness") || material.HasProperty("_RoughnessFactor") || material.HasProperty("roughnessFactor") ||
-					material.HasProperty("_MetallicRoughnessTexture") || material.HasProperty("metallicRoughnessTexture") ||
-					material.HasProperty("_Smoothness"));
+	        return HasPropertyInMaterial(material, UnityMaterialProperties.PBRMetallicRoughness);
         }
 
         private bool IsUnlit(Material material)
@@ -431,14 +464,12 @@ namespace UnityGLTF
 
         private bool IsPBRSpecularGlossiness(Material material)
         {
-	        return material.HasProperty("_SpecColor") && material.HasProperty("_SpecGlossMap");
+	        return HasPropertyInMaterial(material, "_SpecColor", "_SpecGlossMap");
         }
 
         private bool IsCommonConstant(Material material)
         {
-	        return material.HasProperty("_AmbientFactor") &&
-	               material.HasProperty("_LightMap") &&
-	               material.HasProperty("_LightFactor");
+	        return  HasPropertyInMaterial(material, "_AmbientFactor", "_LightMap", "_LightFactor");
         }
 
 #if UNITY_2019_1_OR_NEWER
@@ -617,20 +648,9 @@ namespace UnityGLTF
 			
 			info.Index = ExportTexture(texture, textureSlot, exportSettings);
 
-			if (material.HasProperty("normalScale"))
-			{
-				info.Scale = material.GetFloat("normalScale");
-			}
-			else if (material.HasProperty("_NormalScale"))
-			{
-				info.Scale = material.GetFloat("_NormalScale");
-			}
-			else if (material.HasProperty("_BumpScale"))
-			{
-				info.Scale = material.GetFloat("_BumpScale");
-			}
-
-
+			if (TryGetFloatFormMaterial(material, out var nScale, UnityMaterialProperties.NormalScale))
+				info.Scale = nScale;
+			
 			return info;
 		}
 
@@ -646,15 +666,11 @@ namespace UnityGLTF
 			else
 				info.Index = ExportTexture(texture, textureSlot);
 
-			if (material.HasProperty("occlusionStrength"))
+			if (TryGetFloatFormMaterial(material, out var occlStrength, UnityMaterialProperties.OcclusionStrength))
 			{
-				info.Strength = material.GetFloat("occlusionStrength");
+				info.Strength = occlStrength;
 			}
-			else if (material.HasProperty("_OcclusionStrength"))
-			{
-				info.Strength = material.GetFloat("_OcclusionStrength");
-			}
-
+			
 			return info;
 		}
 
@@ -664,21 +680,9 @@ namespace UnityGLTF
 			var isGltfPbrMetallicRoughnessShader = material.shader.name.Equals("GLTF/PbrMetallicRoughness", StringComparison.Ordinal);
 			var isGlTFastShader = material.shader.name.Equals("glTF/PbrMetallicRoughness", StringComparison.Ordinal);
 
-			if (material.HasProperty("baseColorFactor"))
+			if (TryGetColorFromMaterial(material, out var bColor, UnityMaterialProperties.BaseColor))
 			{
-				pbr.BaseColorFactor = material.GetColor("baseColorFactor").ToNumericsColorLinear();
-			}
-			else if (material.HasProperty("_BaseColorFactor"))
-			{
-				pbr.BaseColorFactor = material.GetColor("_BaseColorFactor").ToNumericsColorLinear();
-			}
-			else if (material.HasProperty("_BaseColor"))
-			{
-				pbr.BaseColorFactor = material.GetColor("_BaseColor").ToNumericsColorLinear();
-			}
-			else if (material.HasProperty("_Color"))
-			{
-				pbr.BaseColorFactor = material.GetColor("_Color").ToNumericsColorLinear();
+				pbr.BaseColorFactor = bColor.ToNumericsColorLinear();
 			}
 
             if (material.HasProperty("_TintColor")) //particles use _TintColor instead of _Color
@@ -693,11 +697,10 @@ namespace UnityGLTF
                 pbr.BaseColorFactor = (material.GetColor("_TintColor") * white).ToNumericsColorLinear() ;
             }
 
-            if (material.HasProperty("_MainTex") || material.HasProperty("_BaseMap") || material.HasProperty("_BaseColorTexture") || material.HasProperty("baseColorTexture")) //TODO if additive particle, render black into alpha
-			{
+            if (TryGetTextureFromMaterial(material, out var mainTex, out var mainTexPropertyName, UnityMaterialProperties.BaseColorTexture))
+            {
+	            //TODO if additive particle, render black into alpha
 				// TODO use private Material.GetFirstPropertyNameIdByAttribute here, supported from 2020.1+
-				var mainTexPropertyName = material.HasProperty("_BaseMap") ? "_BaseMap" : material.HasProperty("_MainTex") ? "_MainTex" : material.HasProperty("baseColorTexture") ? "baseColorTexture" : "_BaseColorTexture";
-				var mainTex = material.GetTexture(mainTexPropertyName);
 
 				if (mainTex)
 				{
@@ -711,37 +714,19 @@ namespace UnityGLTF
 			}
 
             var ignoreMetallicFactor = (material.IsKeywordEnabled("_METALLICGLOSSMAP") || material.IsKeywordEnabled("_METALLICSPECGLOSSMAP")) && !isGltfPbrMetallicRoughnessShader && !isGlTFastShader;
-            if (material.HasProperty("metallicFactor") && !ignoreMetallicFactor)
-            {
-	            pbr.MetallicFactor = material.GetFloat("metallicFactor");
-            }
-            else if (material.HasProperty("_MetallicFactor") && !ignoreMetallicFactor)
-            {
-	            pbr.MetallicFactor = material.GetFloat("_MetallicFactor");
-            }
-            else if (material.HasProperty("_Metallic") && !ignoreMetallicFactor)
-			{
-				pbr.MetallicFactor = material.GetFloat("_Metallic");
-			}
 
+            if (!ignoreMetallicFactor && TryGetFloatFormMaterial(material, out var mFactor, UnityMaterialProperties.MetallicFactor))
+            {
+	            pbr.MetallicFactor = mFactor;
+            }
+            
             var needToBakeRoughnessIntoTexture = false;
             float roughnessMultiplier = 1f;
             bool occlusionGetBakedIntoMetallicRoughness = false;
 
-            if (material.HasProperty("roughnessFactor"))
-            {
-	            float roughness = material.GetFloat("roughnessFactor");
-	            pbr.RoughnessFactor = roughness;
-            }
-            else if (material.HasProperty("_RoughnessFactor"))
-            {
-	            float roughness = material.GetFloat("_RoughnessFactor");
-	            pbr.RoughnessFactor = roughness;
-            }
-            else if (material.HasProperty("_Roughness"))
+            if (TryGetFloatFormMaterial(material, out var rFactor, UnityMaterialProperties.RoughnessFactor))
 			{
-				float roughness = material.GetFloat("_Roughness");
-				pbr.RoughnessFactor = roughness;
+	            pbr.RoughnessFactor = rFactor;
 			}
 			else if (material.HasProperty("_Glossiness") || material.HasProperty("_Smoothness"))
 			{
@@ -770,22 +755,12 @@ namespace UnityGLTF
 				}
 			}
 
-			if (material.HasProperty("metallicRoughnessTexture"))
+            if (TryGetTextureFromMaterial(material, out var mTex, out var metallicTexPropertyName, UnityMaterialProperties.MetallicRoughnessTexture))
 			{
-				var mrTex = material.GetTexture("metallicRoughnessTexture");
-				if (mrTex)
+				if (mTex)
 				{
-					pbr.MetallicRoughnessTexture = ExportTextureInfo(mrTex, TextureMapType.MetallicRoughness);
-					ExportTextureTransform(pbr.MetallicRoughnessTexture, material, "metallicRoughnessTexture");
-				}
-			}
-			else if (material.HasProperty("_MetallicRoughnessTexture"))
-			{
-				var mrTex = material.GetTexture("_MetallicRoughnessTexture");
-				if (mrTex)
-				{
-					pbr.MetallicRoughnessTexture = ExportTextureInfo(mrTex, TextureMapType.MetallicRoughness);
-					ExportTextureTransform(pbr.MetallicRoughnessTexture, material, "_MetallicRoughnessTexture");
+					pbr.MetallicRoughnessTexture = ExportTextureInfo(mTex, TextureMapType.MetallicRoughness);
+					ExportTextureTransform(pbr.MetallicRoughnessTexture, material, metallicTexPropertyName);
 				}
 			}
 			else if (material.HasProperty("_MetallicGlossMap"))
@@ -865,62 +840,21 @@ namespace UnityGLTF
 
 			var pbr = new PbrMetallicRoughness();
 
-			if (material.HasProperty("baseColorFactor"))
+			if (TryGetColorFromMaterial(material, out var bColor, UnityMaterialProperties.BaseColor))
 			{
-				pbr.BaseColorFactor = material.GetColor("baseColorFactor").ToNumericsColorLinear();
-			}
-			else if (material.HasProperty("_BaseColorFactor"))
-			{
-				pbr.BaseColorFactor = material.GetColor("_BaseColorFactor").ToNumericsColorLinear();
-			}
-			else if (material.HasProperty("_BaseColor"))
-			{
-				pbr.BaseColorFactor = material.GetColor("_BaseColor").ToNumericsColorLinear();
-			}
-			else if (material.HasProperty("_Color"))
-			{
-				pbr.BaseColorFactor = material.GetColor("_Color").ToNumericsColorLinear();
+				pbr.BaseColorFactor = bColor.ToNumericsColorLinear();
 			}
 
-			if (material.HasProperty("baseColorTexture"))
+			if (TryGetTextureFromMaterial(material, out var bColTex, out var bColTexProp, UnityMaterialProperties.BaseColorTexture))
 			{
-				var mainTex = material.GetTexture("baseColorTexture");
-				if (mainTex)
+				if (bColTex)
 				{
-					pbr.BaseColorTexture = ExportTextureInfo(mainTex, TextureMapType.BaseColor);
-					ExportTextureTransform(pbr.BaseColorTexture, material, "baseColorTexture");
+					pbr.BaseColorTexture = ExportTextureInfo(bColTex, TextureMapType.BaseColor);
+					ExportTextureTransform(pbr.BaseColorTexture, material, bColTexProp);
 				}
 			}
-			else if (material.HasProperty("_BaseColorTexture"))
-			{
-				var mainTex = material.GetTexture("_BaseColorTexture");
-				if (mainTex)
-				{
-					pbr.BaseColorTexture = ExportTextureInfo(mainTex, TextureMapType.BaseColor);
-					ExportTextureTransform(pbr.BaseColorTexture, material, "_BaseColorTexture");
-				}
-			}
-			else if (material.HasProperty("_BaseMap"))
-			{
-				var mainTex = material.GetTexture("_BaseMap");
-				if (mainTex)
-				{
-					pbr.BaseColorTexture = ExportTextureInfo(mainTex, TextureMapType.BaseColor);
-					ExportTextureTransform(pbr.BaseColorTexture, material, "_BaseMap");
-				}
-			}
-			else if (material.HasProperty("_MainTex"))
-			{
-				var mainTex = material.GetTexture("_MainTex");
-				if (mainTex)
-				{
-					pbr.BaseColorTexture = ExportTextureInfo(mainTex, TextureMapType.BaseColor);
-					ExportTextureTransform(pbr.BaseColorTexture, material, "_MainTex");
-				}
-			}
-
+			
 			def.PbrMetallicRoughness = pbr;
-
 		}
 
 		private void ExportPBRSpecularGlossiness(GLTFMaterial material, Material materialObj)
@@ -945,36 +879,20 @@ namespace UnityGLTF
 			double glossinessFactor = KHR_materials_pbrSpecularGlossinessExtension.GLOSS_FACTOR_DEFAULT;
 			TextureInfo specularGlossinessTexture = KHR_materials_pbrSpecularGlossinessExtension.SPECULAR_GLOSSINESS_TEXTURE_DEFAULT;
 
-			if (materialObj.HasProperty("_BaseColor"))
+			if (TryGetColorFromMaterial(materialObj, out var bColor, UnityMaterialProperties.BaseColor))
 			{
-				diffuseFactor = materialObj.GetColor("_BaseColor").ToNumericsColorLinear();
-			}
-			else if (materialObj.HasProperty("_Color"))
-			{
-				diffuseFactor = materialObj.GetColor("_Color").ToNumericsColorLinear();
+				diffuseFactor = bColor.ToNumericsColorLinear();
 			}
 
-			if (materialObj.HasProperty("_BaseMap"))
+			if (TryGetTextureFromMaterial(materialObj, out var bColTex, out var bColTexProp, UnityMaterialProperties.BaseColorTexture))
 			{
-				var mainTex = materialObj.GetTexture("_BaseMap");
-
-				if (mainTex != null)
+				if (bColTex != null)
 				{
-					diffuseTexture = ExportTextureInfo(mainTex, TextureMapType.BaseColor);
-					ExportTextureTransform(diffuseTexture, materialObj, "_BaseMap");
+					diffuseTexture = ExportTextureInfo(bColTex, TextureMapType.BaseColor);
+					ExportTextureTransform(diffuseTexture, materialObj, bColTexProp);
 				}
 			}
-			else if (materialObj.HasProperty("_MainTex"))
-			{
-				var mainTex = materialObj.GetTexture("_MainTex");
-
-				if (mainTex != null)
-				{
-					diffuseTexture = ExportTextureInfo(mainTex, TextureMapType.BaseColor);
-					ExportTextureTransform(diffuseTexture, materialObj, "_MainTex");
-				}
-			}
-
+			
 			if (materialObj.HasProperty("_SpecColor"))
 			{
 				var specGlossMap = materialObj.GetTexture("_SpecGlossMap");
