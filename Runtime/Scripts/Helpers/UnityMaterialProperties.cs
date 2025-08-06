@@ -53,9 +53,9 @@ namespace UnityGLTF
 
         public static readonly string[] EmissionColor = new string[]
         {
-            "_EmissionColor",
-            "emissiveFactor",
             "_EmissiveFactor",
+            "emissiveFactor",
+            "_EmissionColor",
             "_EmissiveColor",
         };
         
