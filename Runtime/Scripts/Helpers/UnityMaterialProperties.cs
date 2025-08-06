@@ -4,17 +4,17 @@ namespace UnityGLTF
     {
         public static readonly string[] PBRMetallicRoughness = new string[]
         {
-            "_Metallic",
-            "_MetallicFactor",
             "metallicFactor",
+            "roughnessFactor",
+            "metallicRoughnessTexture",
+            "_MetallicFactor",
+            "_RoughnessFactor",
+            "_MetallicRoughnessTexture",
             "_MetallicGlossMap",
             "_Glossiness",
+            "_Metallic",
             "_Roughness",
-            "_RoughnessFactor",
-            "roughnessFactor",
-            "_MetallicRoughnessTexture",
-            "metallicRoughnessTexture",
-            "_Smoothness"
+            "_Smoothness",
         };
         
         public static readonly string[] AlphaCutOff = new string[]
@@ -53,8 +53,8 @@ namespace UnityGLTF
 
         public static readonly string[] EmissionColor = new string[]
         {
-            "_EmissiveFactor",
             "emissiveFactor",
+            "_EmissiveFactor",
             "_EmissionColor",
             "_EmissiveColor",
         };
@@ -76,9 +76,9 @@ namespace UnityGLTF
         
         public static readonly string[] OcclusionTexture = new string[]
         {
-            "_OcclusionMap", 
             "occlusionTexture", 
-            "_OcclusionTexture", 
+            "_OcclusionTexture",
+            "_OcclusionMap",  
             "_MaskMap"
         };
         
@@ -91,18 +91,18 @@ namespace UnityGLTF
         
         public static readonly string[] MetallicRoughnessTexture = new string[]
         {
-            "_MetallicGlossMap",
-            "_MetallicRoughnessTexture",
             "metallicRoughnessTexture",
+            "_MetallicRoughnessTexture",
+            "_MetallicGlossMap",
             "_MetallicRoughnessMap",
             "_MetallicRoughnessTex",
         };
         
         public static readonly string[] SmoothnessFactor = new string[]
         {
-            "_Smoothness",
             "smoothnessFactor",
             "_SmoothnessFactor",
+            "_Smoothness",
         };
         
         public static readonly string[] RoughnessFactor = new string[]
@@ -123,13 +123,13 @@ namespace UnityGLTF
         
         public static readonly string[] BaseColorTexture = new string[]
         {
-            "_ColorTexture",
-            "_MainTex",
-            "_BaseMap",
-            "_BaseColorTexture",
             "baseColorTexture",
+            "_BaseColorTexture",
+            "_ColorTexture",
             "_BaseColorMap",
             "_BaseColorTex",
+            "_BaseMap",
+            "_MainTex",
         };
 
     }

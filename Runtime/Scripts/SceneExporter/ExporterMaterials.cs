@@ -865,7 +865,7 @@ namespace UnityGLTF
 			}
 			else if (!_root.ExtensionsUsed.Contains("KHR_materials_pbrSpecularGlossiness"))
 			{
-				_root.ExtensionsUsed.Add("KHR_materials_pbrSpecularGlossiness"f);
+				_root.ExtensionsUsed.Add("KHR_materials_pbrSpecularGlossiness");
 			}
 			
 			if (material.Extensions == null)
