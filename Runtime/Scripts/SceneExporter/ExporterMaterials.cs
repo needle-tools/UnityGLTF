@@ -70,7 +70,7 @@ namespace UnityGLTF
 			return false;
 		}
 
-		private bool TryGetFloatFormMaterial(Material material, out float value, params string[] propertyNames)
+		private bool TryGetFloatFromMaterial(Material material, out float value, params string[] propertyNames)
 		{
 			value = 0f;
 			foreach (var name in propertyNames)
@@ -84,7 +84,7 @@ namespace UnityGLTF
 			return false;
 		}
 		
-		private bool TryGetIntFormMaterial(Material material, out int value, params string[] propertyNames)
+		private bool TryGetIntFromMaterial(Material material, out int value, params string[] propertyNames)
 		{
 			value = 0;
 			foreach (var name in propertyNames)
@@ -215,7 +215,7 @@ namespace UnityGLTF
 			switch (materialObj.GetTag("RenderType", false, ""))
 			{
 				case "TransparentCutout":
-					if (TryGetFloatFormMaterial(materialObj, out var alphaCutOff, UnityMaterialProperties.AlphaCutOff))
+					if (TryGetFloatFromMaterial(materialObj, out var alphaCutOff, UnityMaterialProperties.AlphaCutOff))
 						material.AlphaCutoff = alphaCutOff;
 					
 					material.AlphaMode = AlphaMode.MASK;
@@ -229,7 +229,7 @@ namespace UnityGLTF
 					    (isBirp && materialObj.IsKeywordEnabled("_BUILTIN_ALPHATEST_ON")) ||
 					    materialObj.renderQueue == 2450)
 					{
-						if (TryGetFloatFormMaterial(materialObj, out var alphaCutOff2, UnityMaterialProperties.AlphaCutOff))
+						if (TryGetFloatFromMaterial(materialObj, out var alphaCutOff2, UnityMaterialProperties.AlphaCutOff))
 							material.AlphaCutoff = alphaCutOff2;
 						material.AlphaMode = AlphaMode.MASK;
 					}
@@ -411,7 +411,7 @@ namespace UnityGLTF
 						material.OcclusionTexture = ExportOcclusionTextureInfo(occTex, TextureMapType.Occlusion, materialObj, sharedTextureId);
 						ExportTextureTransform(material.OcclusionTexture, materialObj, occlTexProp);
 
-						if (TryGetFloatFormMaterial(materialObj, out var ooclTexCoord, "occlusionTextureTexCoord", "_OcclusionTextureTexCoord"))
+						if (TryGetFloatFromMaterial(materialObj, out var ooclTexCoord, "occlusionTextureTexCoord", "_OcclusionTextureTexCoord"))
 							material.OcclusionTexture.TexCoord = Mathf.RoundToInt(ooclTexCoord);
 						else
 							material.OcclusionTexture.TexCoord = 0;
@@ -648,7 +648,7 @@ namespace UnityGLTF
 			
 			info.Index = ExportTexture(texture, textureSlot, exportSettings);
 
-			if (TryGetFloatFormMaterial(material, out var nScale, UnityMaterialProperties.NormalScale))
+			if (TryGetFloatFromMaterial(material, out var nScale, UnityMaterialProperties.NormalScale))
 				info.Scale = nScale;
 			
 			return info;
@@ -666,7 +666,7 @@ namespace UnityGLTF
 			else
 				info.Index = ExportTexture(texture, textureSlot);
 
-			if (TryGetFloatFormMaterial(material, out var occlStrength, UnityMaterialProperties.OcclusionStrength))
+			if (TryGetFloatFromMaterial(material, out var occlStrength, UnityMaterialProperties.OcclusionStrength))
 			{
 				info.Strength = occlStrength;
 			}
@@ -715,7 +715,7 @@ namespace UnityGLTF
 
             var ignoreMetallicFactor = (material.IsKeywordEnabled("_METALLICGLOSSMAP") || material.IsKeywordEnabled("_METALLICSPECGLOSSMAP")) && !isGltfPbrMetallicRoughnessShader && !isGlTFastShader;
 
-            if (!ignoreMetallicFactor && TryGetFloatFormMaterial(material, out var mFactor, UnityMaterialProperties.MetallicFactor))
+            if (!ignoreMetallicFactor && TryGetFloatFromMaterial(material, out var mFactor, UnityMaterialProperties.MetallicFactor))
             {
 	            pbr.MetallicFactor = mFactor;
             }
@@ -724,7 +724,7 @@ namespace UnityGLTF
             float roughnessMultiplier = 1f;
             bool occlusionGetBakedIntoMetallicRoughness = false;
 
-            if (TryGetFloatFormMaterial(material, out var rFactor, UnityMaterialProperties.RoughnessFactor))
+            if (TryGetFloatFromMaterial(material, out var rFactor, UnityMaterialProperties.RoughnessFactor))
 			{
 	            pbr.RoughnessFactor = rFactor;
 			}
@@ -865,7 +865,7 @@ namespace UnityGLTF
 			}
 			else if (!_root.ExtensionsUsed.Contains("KHR_materials_pbrSpecularGlossiness"))
 			{
-				_root.ExtensionsUsed.Add("KHR_materials_pbrSpecularGlossiness");
+				_root.ExtensionsUsed.Add("KHR_materials_pbrSpecularGlossiness"f);
 			}
 			
 			if (material.Extensions == null)
