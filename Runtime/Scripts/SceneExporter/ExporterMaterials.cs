@@ -112,18 +112,38 @@ namespace UnityGLTF
 			return false;
 		}
 
-		private bool TryGetTextureScaleOffset(Material material, out Vector2 scale, out Vector2 offset,
+		private bool TryGetTextureTransform(Material material, out Vector2 scale, out Vector2 offset, out float rotation,
 			params string[] textureNames)
 		{
 			scale = Vector2.one;
 			offset = Vector2.zero;
-
+			rotation = 0;
+			
 			foreach (var name in textureNames)
 			{
-				if (material.HasProperty(name))
+				
+				if(name == "_MainTex")
+				{
+					offset = material.mainTextureOffset;
+					scale = material.mainTextureScale;
+					rotation = 0;
+#if UNITY_2021_1_OR_NEWER
+					if (material.HasFloat("_MainTexRotation"))
+#else
+						if (mat.HasProperty("_MainTexRotation"))
+#endif
+						rotation = material.GetFloat("_MainTexRotation");
+
+					return true;
+				}
+
+				
+				if (material.HasProperty(name+ "_ST") && material.HasProperty(name))
 				{
 					scale = material.GetTextureScale(name);
 					offset = material.GetTextureOffset(name);
+					rotation = material.HasProperty(name+ "Rotation") ? material.GetFloat(name+"Rotation") : 0;
+
 					return true;
 				}
 			}
@@ -141,6 +161,21 @@ namespace UnityGLTF
 				{
 					texturePropName = name;
 					texture = material.GetTexture(name);
+					return true;
+				}
+			}
+			return false;
+		}
+
+		private bool TryGetTextureUVChannel(Material material, out int uvChannel, params string[] propertyNames)
+		{
+			uvChannel = 0;
+			foreach (var name in propertyNames)
+			{
+				var nameWithTexCoord = name + "TexCoord";
+				if (material.HasProperty(nameWithTexCoord))
+				{
+					uvChannel = Mathf.RoundToInt(material.GetFloat(nameWithTexCoord));
 					return true;
 				}
 			}
@@ -240,10 +275,8 @@ namespace UnityGLTF
 					break;
 			}
 
-			
-			material.DoubleSided = (materialObj.HasProperty("_Cull") && materialObj.GetInt("_Cull") == (int)CullMode.Off) ||
-			                       (materialObj.HasProperty("_CullMode") && materialObj.GetInt("_CullMode") == (int)CullMode.Off) ||
-			                       (materialObj.shader.name.EndsWith("-Double")); // workaround for exporting shaders that are set to double-sided on 2020.3
+			material.DoubleSided = (TryGetIntFromMaterial(materialObj, out var cullMode, UnityMaterialProperties.CullMode) && cullMode == (int)CullMode.Off)
+									|| materialObj.shader.name.EndsWith("-Double");  // workaround for exporting shaders that are set to double-sided on 2020.3
 
 			if (HasKeywordEnabled(materialObj, UnityMaterialProperties.EmissionKeywords)
 			    || TryGetTextureFromMaterial(materialObj, out _, out _, UnityMaterialProperties.EmissiveTexture))
@@ -552,43 +585,12 @@ namespace UnityGLTF
 				{
 					// ignore, texture has explicit _ST property
 				}
-				else if(mat.HasProperty("_MainTex_ST") || mat.HasProperty("_BaseMap_ST") || mat.HasProperty("_BaseColorMap_ST") || mat.HasProperty("_BaseColorTexture_ST") || mat.HasProperty("baseColorTexture_ST"))
+				else if (TryGetTextureTransform(mat, out var baseColorScale, out var baseColorOffset,
+					         out var baseColorRotation, UnityMaterialProperties.BaseColorTexture))
 				{
-					// difficult choice here: some shaders might support texture transform per-texture, others use the main transform.
-					if (mat.HasProperty("baseColorTexture"))
-					{
-						offset = mat.GetTextureOffset("baseColorTexture");
-						scale = mat.GetTextureScale("baseColorTexture");
-						rotation = mat.HasProperty("baseColorTextureRotation") ? mat.GetFloat("baseColorTextureRotation") : 0;
-					}
-					else if (mat.HasProperty("_BaseColorTexture"))
-					{
-						offset = mat.GetTextureOffset("_BaseColorTexture");
-						scale = mat.GetTextureScale("_BaseColorTexture");
-						rotation = mat.HasProperty("_BaseColorTextureRotation") ? mat.GetFloat("_BaseColorTextureRotation") : 0;
-					}
-					else if (mat.HasProperty("_BaseColorMap"))
-					{
-						offset = mat.GetTextureOffset("_BaseColorMap");
-						scale = mat.GetTextureScale("_BaseColorMap");
-					}
-					else if (mat.HasProperty("_BaseMap"))
-					{
-						offset = mat.GetTextureOffset("_BaseMap");
-						scale = mat.GetTextureScale("_BaseMap");
-					}
-					else if(mat.HasProperty("_MainTex"))
-					{
-						offset = mat.mainTextureOffset;
-						scale = mat.mainTextureScale;
-						rotation = 0;
-#if UNITY_2021_1_OR_NEWER
-						if (mat.HasFloat("_MainTexRotation"))
-#else
-						if (mat.HasProperty("_MainTexRotation"))
-#endif
-							rotation = mat.GetFloat("_MainTexRotation");
-					}
+					offset = baseColorOffset;
+					scale = baseColorScale;
+					rotation = baseColorRotation;
 				}
 				else
 				{
@@ -706,10 +708,8 @@ namespace UnityGLTF
 				{
 					pbr.BaseColorTexture = ExportTextureInfo(mainTex, TextureMapType.BaseColor);
 					ExportTextureTransform(pbr.BaseColorTexture, material, mainTexPropertyName);
-					pbr.BaseColorTexture.TexCoord = material.HasProperty("baseColorTextureTexCoord") ?
-						Mathf.RoundToInt(material.GetFloat("baseColorTextureTexCoord")) :
-						material.HasProperty("_BaseColorTextureTexCoord") ?
-							Mathf.RoundToInt(material.GetFloat("_BaseColorTextureTexCoord")) : 0;
+					if (TryGetTextureUVChannel(material, out var uvChannel, UnityMaterialProperties.BaseColorTexture))
+						pbr.BaseColorTexture.TexCoord = uvChannel;
 				}
 			}
 
