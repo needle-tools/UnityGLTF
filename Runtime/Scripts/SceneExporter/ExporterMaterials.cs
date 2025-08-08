@@ -56,132 +56,7 @@ namespace UnityGLTF
 		private HashSet<Material> _occlusionBakedTextures = new HashSet<Material>();
 
 
-		private bool TryGetColorFromMaterial(Material material, out Color color, params string[] propertyNames)
-		{
-			color = Color.white;
-			foreach (var name in propertyNames)
-			{
-				if (material.HasProperty(name))
-				{
-					color = material.GetColor(name);
-					return true;
-				}
-			}
-			return false;
-		}
-
-		private bool TryGetFloatFromMaterial(Material material, out float value, params string[] propertyNames)
-		{
-			value = 0f;
-			foreach (var name in propertyNames)
-			{
-				if (material.HasProperty(name))
-				{
-					value = material.GetFloat(name);
-					return true;
-				}
-			}
-			return false;
-		}
-		
-		private bool TryGetIntFromMaterial(Material material, out int value, params string[] propertyNames)
-		{
-			value = 0;
-			foreach (var name in propertyNames)
-			{
-				if (material.HasProperty(name))
-				{
-					value = material.GetInteger(name);
-					return true;
-				}
-			}
-			return false;
-		}
-		
-		private bool HasPropertyInMaterial(Material material, params string[] propertyNames)
-		{
-			if (material == null) return false;
-
-			foreach (var name in propertyNames)
-			{
-				if (material.HasProperty(name))
-				{
-					return true;
-				}
-			}
-			return false;
-		}
-
-		private bool TryGetTextureTransform(Material material, out Vector2 scale, out Vector2 offset, out float rotation,
-			params string[] textureNames)
-		{
-			scale = Vector2.one;
-			offset = Vector2.zero;
-			rotation = 0;
-			
-			foreach (var name in textureNames)
-			{
-				
-				if(name == "_MainTex")
-				{
-					offset = material.mainTextureOffset;
-					scale = material.mainTextureScale;
-					rotation = 0;
-#if UNITY_2021_1_OR_NEWER
-					if (material.HasFloat("_MainTexRotation"))
-#else
-						if (mat.HasProperty("_MainTexRotation"))
-#endif
-						rotation = material.GetFloat("_MainTexRotation");
-
-					return true;
-				}
-
-				
-				if (material.HasProperty(name+ "_ST") && material.HasProperty(name))
-				{
-					scale = material.GetTextureScale(name);
-					offset = material.GetTextureOffset(name);
-					rotation = material.HasProperty(name+ "Rotation") ? material.GetFloat(name+"Rotation") : 0;
-
-					return true;
-				}
-			}
-			return false;
-			
-		}
-		
-		private bool TryGetTextureFromMaterial(Material material, out Texture texture, out string texturePropName, params string[] propertyNames)
-		{
-			texture = null;
-			texturePropName = null;
-			foreach (var name in propertyNames)
-			{
-				if (material.HasProperty(name))
-				{
-					texturePropName = name;
-					texture = material.GetTexture(name);
-					return true;
-				}
-			}
-			return false;
-		}
-
-		private bool TryGetTextureUVChannel(Material material, out int uvChannel, params string[] propertyNames)
-		{
-			uvChannel = 0;
-			foreach (var name in propertyNames)
-			{
-				var nameWithTexCoord = name + "TexCoord";
-				if (material.HasProperty(nameWithTexCoord))
-				{
-					uvChannel = Mathf.RoundToInt(material.GetFloat(nameWithTexCoord));
-					return true;
-				}
-			}
-			return false;
-		}
-
+	
 		private bool HasKeywordEnabled(Material material, params string[] keywords)
 		{
 			if (material == null) return false;
@@ -250,7 +125,7 @@ namespace UnityGLTF
 			switch (materialObj.GetTag("RenderType", false, ""))
 			{
 				case "TransparentCutout":
-					if (TryGetFloatFromMaterial(materialObj, out var alphaCutOff, UnityMaterialProperties.AlphaCutOff))
+					if (UnityMaterialProperties.AlphaCutOff.TryGetFloat(materialObj, out var alphaCutOff, out _))
 						material.AlphaCutoff = alphaCutOff;
 					
 					material.AlphaMode = AlphaMode.MASK;
@@ -264,7 +139,7 @@ namespace UnityGLTF
 					    (isBirp && materialObj.IsKeywordEnabled("_BUILTIN_ALPHATEST_ON")) ||
 					    materialObj.renderQueue == 2450)
 					{
-						if (TryGetFloatFromMaterial(materialObj, out var alphaCutOff2, UnityMaterialProperties.AlphaCutOff))
+						if (UnityMaterialProperties.AlphaCutOff.TryGetFloat(materialObj, out var alphaCutOff2, out _))
 							material.AlphaCutoff = alphaCutOff2;
 						material.AlphaMode = AlphaMode.MASK;
 					}
@@ -275,11 +150,11 @@ namespace UnityGLTF
 					break;
 			}
 
-			material.DoubleSided = (TryGetIntFromMaterial(materialObj, out var cullMode, UnityMaterialProperties.CullMode) && cullMode == (int)CullMode.Off)
+			material.DoubleSided = (UnityMaterialProperties.CullMode.TryGetInt(materialObj, out var cullMode, out _) && cullMode == (int)CullMode.Off)
 									|| materialObj.shader.name.EndsWith("-Double");  // workaround for exporting shaders that are set to double-sided on 2020.3
 
 			if (HasKeywordEnabled(materialObj, UnityMaterialProperties.EmissionKeywords)
-			    || TryGetTextureFromMaterial(materialObj, out _, out _, UnityMaterialProperties.EmissiveTexture))
+			    || UnityMaterialProperties.EmissiveTexture.TryGetTexture(materialObj, out _, out _))
 			{
 				// In Gamma space, some materials treat their emissive color inputs differently than in Linear space.
 				// This is super confusing when converting materials, but we also need to handle it correctly here.
@@ -290,7 +165,7 @@ namespace UnityGLTF
 					materialObj.shader.name == "Universal Render Pipeline/Simple Lit" ||
 					materialObj.shader.name == "Universal Render Pipeline/Unlit");
 				        
-				if (TryGetColorFromMaterial(materialObj, out var emissionColor, UnityMaterialProperties.EmissionColor)
+				if (UnityMaterialProperties.EmissionColor.TryGetColor(materialObj, out var emissionColor, out _)
 				    || materialObj.HasProperty("_UseEmissiveIntensity"))
 				{
 					var emissiveAmount = Color.black;
@@ -332,7 +207,7 @@ namespace UnityGLTF
 					}
 				}
 
-				if (TryGetTextureFromMaterial(materialObj, out var emissionTex, out var propName, UnityMaterialProperties.EmissiveTexture))
+				if (UnityMaterialProperties.EmissiveTexture.TryGetTexture(materialObj, out var emissionTex, out var propName))
 				{
 					if (emissionTex)
 					{
@@ -371,7 +246,7 @@ namespace UnityGLTF
 				}
 			}
 			else
-			if (TryGetTextureFromMaterial(materialObj, out var normalTexture, out var normalTexProp, UnityMaterialProperties.NormalTexture))
+			if (UnityMaterialProperties.NormalTexture.TryGetTexture(materialObj, out var normalTexture, out var normalTexProp))
 			{
 				if (normalTexture)
 				{
@@ -405,13 +280,11 @@ namespace UnityGLTF
 			}
 			else
 			{
-				if (TryGetTextureFromMaterial(materialObj, out var baseColTex, out var baseColTexProp,
-					    UnityMaterialProperties.BaseColorTexture))
+				if (UnityMaterialProperties.BaseColorTexture.TryGetTexture(materialObj, out var baseColTex, out var baseColTexProp))
 				{
 					material.PbrMetallicRoughness = new PbrMetallicRoughness()
 					{
-						BaseColorFactor = (TryGetColorFromMaterial(materialObj, out var bCol,
-							UnityMaterialProperties.BaseColor)
+						BaseColorFactor = (UnityMaterialProperties.BaseColor.TryGetColor(materialObj, out var bCol, out _)
 							? bCol
 							: Color.white).ToNumericsColorLinear(),
 						BaseColorTexture = baseColTex ? ExportTextureInfo(baseColTex, TextureMapType.BaseColor) : null
@@ -424,7 +297,7 @@ namespace UnityGLTF
 					material.DoubleSided = true;
 			}
 
-			if (TryGetTextureFromMaterial(materialObj, out var occTex, out var occlTexProp, UnityMaterialProperties.OcclusionTexture))
+			if (UnityMaterialProperties.OcclusionTexture.TryGetTexture(materialObj, out var occTex, out var occlTexProp))
 			{
 				
 				if (occTex)
@@ -444,10 +317,8 @@ namespace UnityGLTF
 						material.OcclusionTexture = ExportOcclusionTextureInfo(occTex, TextureMapType.Occlusion, materialObj, sharedTextureId);
 						ExportTextureTransform(material.OcclusionTexture, materialObj, occlTexProp);
 
-						if (TryGetFloatFromMaterial(materialObj, out var ooclTexCoord, "occlusionTextureTexCoord", "_OcclusionTextureTexCoord"))
-							material.OcclusionTexture.TexCoord = Mathf.RoundToInt(ooclTexCoord);
-						else
-							material.OcclusionTexture.TexCoord = 0;
+						if (UnityMaterialProperties.OcclusionTexture.TryGetTextureUVChannel(materialObj, out var uvChannel))
+							material.OcclusionTexture.TexCoord = uvChannel;
 					}
 					else
 					{
@@ -487,7 +358,7 @@ namespace UnityGLTF
 
         private bool IsPBRMetallicRoughness(Material material)
         {
-	        return HasPropertyInMaterial(material, UnityMaterialProperties.PBRMetallicRoughness);
+	        return UnityMaterialProperties.PBRMetallicRoughness.HasProperty(material);
         }
 
         private bool IsUnlit(Material material)
@@ -497,12 +368,12 @@ namespace UnityGLTF
 
         private bool IsPBRSpecularGlossiness(Material material)
         {
-	        return HasPropertyInMaterial(material, "_SpecColor", "_SpecGlossMap");
+	        return UnityMaterialProperties.HasPropertyInMaterial(material, "_SpecColor", "_SpecGlossMap");
         }
 
         private bool IsCommonConstant(Material material)
         {
-	        return  HasPropertyInMaterial(material, "_AmbientFactor", "_LightMap", "_LightFactor");
+	        return  UnityMaterialProperties.HasPropertyInMaterial(material, "_AmbientFactor", "_LightMap", "_LightFactor");
         }
 
 #if UNITY_2019_1_OR_NEWER
@@ -585,8 +456,7 @@ namespace UnityGLTF
 				{
 					// ignore, texture has explicit _ST property
 				}
-				else if (TryGetTextureTransform(mat, out var baseColorScale, out var baseColorOffset,
-					         out var baseColorRotation, UnityMaterialProperties.BaseColorTexture))
+				else if (UnityMaterialProperties.BaseColorTexture.TryGetTextureTransform(mat, out var baseColorScale, out var baseColorOffset, out var baseColorRotation))
 				{
 					offset = baseColorOffset;
 					scale = baseColorScale;
@@ -650,7 +520,7 @@ namespace UnityGLTF
 			
 			info.Index = ExportTexture(texture, textureSlot, exportSettings);
 
-			if (TryGetFloatFromMaterial(material, out var nScale, UnityMaterialProperties.NormalScale))
+			if (UnityMaterialProperties.NormalScale.TryGetFloat(material, out var nScale, out _))
 				info.Scale = nScale;
 			
 			return info;
@@ -668,7 +538,7 @@ namespace UnityGLTF
 			else
 				info.Index = ExportTexture(texture, textureSlot);
 
-			if (TryGetFloatFromMaterial(material, out var occlStrength, UnityMaterialProperties.OcclusionStrength))
+			if (UnityMaterialProperties.OcclusionStrength.TryGetFloat(material, out var occlStrength, out _))
 			{
 				info.Strength = occlStrength;
 			}
@@ -682,7 +552,7 @@ namespace UnityGLTF
 			var isGltfPbrMetallicRoughnessShader = material.shader.name.Equals("GLTF/PbrMetallicRoughness", StringComparison.Ordinal);
 			var isGlTFastShader = material.shader.name.Equals("glTF/PbrMetallicRoughness", StringComparison.Ordinal);
 
-			if (TryGetColorFromMaterial(material, out var bColor, UnityMaterialProperties.BaseColor))
+			if (UnityMaterialProperties.BaseColor.TryGetColor(material, out var bColor, out _))
 			{
 				pbr.BaseColorFactor = bColor.ToNumericsColorLinear();
 			}
@@ -699,7 +569,7 @@ namespace UnityGLTF
                 pbr.BaseColorFactor = (material.GetColor("_TintColor") * white).ToNumericsColorLinear() ;
             }
 
-            if (TryGetTextureFromMaterial(material, out var mainTex, out var mainTexPropertyName, UnityMaterialProperties.BaseColorTexture))
+            if (UnityMaterialProperties.BaseColorTexture.TryGetTexture(material, out var mainTex, out var mainTexPropertyName))
             {
 	            //TODO if additive particle, render black into alpha
 				// TODO use private Material.GetFirstPropertyNameIdByAttribute here, supported from 2020.1+
@@ -708,14 +578,14 @@ namespace UnityGLTF
 				{
 					pbr.BaseColorTexture = ExportTextureInfo(mainTex, TextureMapType.BaseColor);
 					ExportTextureTransform(pbr.BaseColorTexture, material, mainTexPropertyName);
-					if (TryGetTextureUVChannel(material, out var uvChannel, UnityMaterialProperties.BaseColorTexture))
+					if (UnityMaterialProperties.BaseColorTexture.TryGetTextureUVChannel(material, out var uvChannel))
 						pbr.BaseColorTexture.TexCoord = uvChannel;
 				}
 			}
 
             var ignoreMetallicFactor = (material.IsKeywordEnabled("_METALLICGLOSSMAP") || material.IsKeywordEnabled("_METALLICSPECGLOSSMAP")) && !isGltfPbrMetallicRoughnessShader && !isGlTFastShader;
 
-            if (!ignoreMetallicFactor && TryGetFloatFromMaterial(material, out var mFactor, UnityMaterialProperties.MetallicFactor))
+            if (!ignoreMetallicFactor && UnityMaterialProperties.MetallicFactor.TryGetFloat(material, out var mFactor, out _))
             {
 	            pbr.MetallicFactor = mFactor;
             }
@@ -724,7 +594,7 @@ namespace UnityGLTF
             float roughnessMultiplier = 1f;
             bool occlusionGetBakedIntoMetallicRoughness = false;
 
-            if (TryGetFloatFromMaterial(material, out var rFactor, UnityMaterialProperties.RoughnessFactor))
+            if (UnityMaterialProperties.RoughnessFactor.TryGetFloat(material, out var rFactor, out _))
 			{
 	            pbr.RoughnessFactor = rFactor;
 			}
@@ -755,7 +625,7 @@ namespace UnityGLTF
 				}
 			}
 
-            if (TryGetTextureFromMaterial(material, out var mTex, out var metallicTexPropertyName, UnityMaterialProperties.MetallicRoughnessTexture))
+            if (UnityMaterialProperties.MetallicRoughnessTexture.TryGetTexture(material, out var mTex, out var metallicTexPropertyName))
 			{
 				if (mTex)
 				{
@@ -840,12 +710,12 @@ namespace UnityGLTF
 
 			var pbr = new PbrMetallicRoughness();
 
-			if (TryGetColorFromMaterial(material, out var bColor, UnityMaterialProperties.BaseColor))
+			if (UnityMaterialProperties.BaseColor.TryGetColor(material, out var bColor, out _))
 			{
 				pbr.BaseColorFactor = bColor.ToNumericsColorLinear();
 			}
 
-			if (TryGetTextureFromMaterial(material, out var bColTex, out var bColTexProp, UnityMaterialProperties.BaseColorTexture))
+			if (UnityMaterialProperties.BaseColorTexture.TryGetTexture(material, out var bColTex, out var bColTexProp))
 			{
 				if (bColTex)
 				{
@@ -879,12 +749,12 @@ namespace UnityGLTF
 			double glossinessFactor = KHR_materials_pbrSpecularGlossinessExtension.GLOSS_FACTOR_DEFAULT;
 			TextureInfo specularGlossinessTexture = KHR_materials_pbrSpecularGlossinessExtension.SPECULAR_GLOSSINESS_TEXTURE_DEFAULT;
 
-			if (TryGetColorFromMaterial(materialObj, out var bColor, UnityMaterialProperties.BaseColor))
+			if (UnityMaterialProperties.BaseColor.TryGetColor(materialObj, out var bColor, out _))
 			{
 				diffuseFactor = bColor.ToNumericsColorLinear();
 			}
 
-			if (TryGetTextureFromMaterial(materialObj, out var bColTex, out var bColTexProp, UnityMaterialProperties.BaseColorTexture))
+			if (UnityMaterialProperties.BaseColorTexture.TryGetTexture(materialObj, out var bColTex, out var bColTexProp))
 			{
 				if (bColTex != null)
 				{
