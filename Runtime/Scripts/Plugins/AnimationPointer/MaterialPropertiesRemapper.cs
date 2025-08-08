@@ -323,14 +323,14 @@ namespace UnityGLTF.Plugins
         {
             var baseColor = new MaterialPointerPropertyMap(MaterialPointerPropertyMap.PropertyTypeOption.SRGBColor)
             {
-                PropertyNames = new[] { "_Color", "_BaseColor", "_BaseColorFactor", "baseColorFactor" },
+                PropertyNames = UnityMaterialProperties.BaseColor,
                 GltfPropertyName = "pbrMetallicRoughness/baseColorFactor",
             };
             AddMap(baseColor);
 
             var smoothness = new MaterialPointerPropertyMap(MaterialPointerPropertyMap.PropertyTypeOption.Float)
             {
-                PropertyNames = new[] { "_Smoothness", "_Glossiness" },
+                PropertyNames = UnityMaterialProperties.SmoothnessFactor,
                 ExportFlipValueRange = true,
                 GltfPropertyName = "pbrMetallicRoughness/roughnessFactor",
             };
@@ -338,21 +338,21 @@ namespace UnityGLTF.Plugins
 
             var roughness = new MaterialPointerPropertyMap(MaterialPointerPropertyMap.PropertyTypeOption.Float)
             {
-                PropertyNames = new[] { "_Roughness", "_RoughnessFactor", "roughnessFactor" },
+                PropertyNames = UnityMaterialProperties.RoughnessFactor,
                 GltfPropertyName = "pbrMetallicRoughness/roughnessFactor"
             };
             AddMap(roughness);
             
             var dispersion = new MaterialPointerPropertyMap(MaterialPointerPropertyMap.PropertyTypeOption.Float)
             {
-                PropertyNames = new[] { "dispersion"},
+                PropertyNames = UnityMaterialProperties.Dispersion,
                 GltfPropertyName = "dispersion"
             };
             AddMap(dispersion);            
             
             var metallic = new MaterialPointerPropertyMap(MaterialPointerPropertyMap.PropertyTypeOption.Float)
             {
-                PropertyNames = new[] { "_Metallic", "_MetallicFactor", "metallicFactor" },
+                PropertyNames = UnityMaterialProperties.MetallicFactor,
                 GltfPropertyName = "pbrMetallicRoughness/metallicFactor"
             };
             AddMap(metallic);
@@ -361,7 +361,7 @@ namespace UnityGLTF.Plugins
             {
                 // Note: Order changed because in some URP versions Shader Graph declares an extra _EmissionColor property
                 // but we want to use the emissiveFactor property.
-                PropertyNames = new[] { "emissiveFactor", "_EmissiveFactor", "_EmissionColor" },
+                PropertyNames = UnityMaterialProperties.EmissionColor,
                 GltfPropertyName = "emissiveFactor",
                 GltfSecondaryPropertyName =
                     $"extensions/{KHR_materials_emissive_strength_Factory.EXTENSION_NAME}/{nameof(KHR_materials_emissive_strength.emissiveStrength)}",
@@ -391,21 +391,21 @@ namespace UnityGLTF.Plugins
             
             var alphaCutoff = new MaterialPointerPropertyMap(MaterialPointerPropertyMap.PropertyTypeOption.Float)
             {
-                PropertyNames = new[] { "_AlphaCutoff", "alphaCutoff", "_Cutoff" },
+                PropertyNames = UnityMaterialProperties.AlphaCutOff,
                 GltfPropertyName = "alphaCutoff"
             };
             AddMap(alphaCutoff);
 
             var normalScale = new MaterialPointerPropertyMap(MaterialPointerPropertyMap.PropertyTypeOption.Float)
             {
-                PropertyNames = new[] { "_BumpScale", "_NormalScale", "normalScale", "normalTextureScale" },
+                PropertyNames =UnityMaterialProperties.NormalScale,
                 GltfPropertyName = "normalTexture/scale"
             };
             AddMap(normalScale);
             
             var occlusionStrength = new MaterialPointerPropertyMap(MaterialPointerPropertyMap.PropertyTypeOption.Float)
             {
-                PropertyNames = new[] { "_OcclusionStrength", "occlusionStrength", "occlusionTextureStrength" },
+                PropertyNames = UnityMaterialProperties.OcclusionStrength,
                 GltfPropertyName = "occlusionTexture/strength"
             };
             AddMap(occlusionStrength);
@@ -413,7 +413,7 @@ namespace UnityGLTF.Plugins
             // KHR_materials_transmission
             var transmissionFactor = new MaterialPointerPropertyMap(MaterialPointerPropertyMap.PropertyTypeOption.Float)
             {
-                PropertyNames = new[] { "_TransmissionFactor", "transmissionFactor" },
+                PropertyNames = UnityMaterialProperties.TransmissionFactor,
                 GltfPropertyName =
                     $"extensions/{KHR_materials_transmission_Factory.EXTENSION_NAME}/{nameof(KHR_materials_transmission.transmissionFactor)}",
                 ExtensionName = KHR_materials_transmission_Factory.EXTENSION_NAME
@@ -423,7 +423,7 @@ namespace UnityGLTF.Plugins
             // KHR_materials_volume
             var thicknessFactor = new MaterialPointerPropertyMap(MaterialPointerPropertyMap.PropertyTypeOption.Float)
             {
-                PropertyNames = new[] { "_ThicknessFactor", "thicknessFactor" },
+                PropertyNames = UnityMaterialProperties.ThicknessFactor,
                 GltfPropertyName =
                     $"extensions/{KHR_materials_volume_Factory.EXTENSION_NAME}/{nameof(KHR_materials_volume.thicknessFactor)}",
                 ExtensionName = KHR_materials_volume_Factory.EXTENSION_NAME
@@ -432,7 +432,7 @@ namespace UnityGLTF.Plugins
 
             var attenuationDistance = new MaterialPointerPropertyMap(MaterialPointerPropertyMap.PropertyTypeOption.Float)
             {
-                PropertyNames = new[] { "_AttenuationDistance", "attenuationDistance" },
+                PropertyNames = UnityMaterialProperties.AttenuationDistance,
                 GltfPropertyName =
                     $"extensions/{KHR_materials_volume_Factory.EXTENSION_NAME}/{nameof(KHR_materials_volume.attenuationDistance)}",
                 ExtensionName = KHR_materials_volume_Factory.EXTENSION_NAME
@@ -441,7 +441,7 @@ namespace UnityGLTF.Plugins
 
             var attenuationColor = new MaterialPointerPropertyMap(MaterialPointerPropertyMap.PropertyTypeOption.LinearColor)
             {
-                PropertyNames = new[] { "_AttenuationColor", "attenuationColor" },
+                PropertyNames = UnityMaterialProperties.AttenuationColor,
                 GltfPropertyName =
                     $"extensions/{KHR_materials_volume_Factory.EXTENSION_NAME}/{nameof(KHR_materials_volume.attenuationColor)}",
                 ExtensionName = KHR_materials_volume_Factory.EXTENSION_NAME,
@@ -452,7 +452,7 @@ namespace UnityGLTF.Plugins
             // KHR_materials_ior
             var ior = new MaterialPointerPropertyMap(MaterialPointerPropertyMap.PropertyTypeOption.Float)
             {
-                PropertyNames = new[] { "_IOR", "ior" },
+                PropertyNames = UnityMaterialProperties.IOR,
                 GltfPropertyName =
                     $"extensions/{KHR_materials_ior_Factory.EXTENSION_NAME}/{nameof(KHR_materials_ior.ior)}",
                 ExtensionName = KHR_materials_ior_Factory.EXTENSION_NAME
@@ -462,7 +462,7 @@ namespace UnityGLTF.Plugins
             // KHR_materials_iridescence
             var iridescenceFactor = new MaterialPointerPropertyMap(MaterialPointerPropertyMap.PropertyTypeOption.Float)
             {
-                PropertyNames = new[] { "_IridescenceFactor", "iridescenceFactor" },
+                PropertyNames =  UnityMaterialProperties.IridescenceFactor,
                 GltfPropertyName =
                     $"extensions/{KHR_materials_iridescence_Factory.EXTENSION_NAME}/{nameof(KHR_materials_iridescence.iridescenceFactor)}",
                 ExtensionName = KHR_materials_iridescence_Factory.EXTENSION_NAME
@@ -470,7 +470,7 @@ namespace UnityGLTF.Plugins
             AddMap(iridescenceFactor);
             var iridescenceIor = new MaterialPointerPropertyMap(MaterialPointerPropertyMap.PropertyTypeOption.Float)
             {
-                PropertyNames = new[] { "iridescenceIor" },
+                PropertyNames = UnityMaterialProperties.IridescenceFactorIOR,
                 GltfPropertyName =
                     $"extensions/{KHR_materials_iridescence_Factory.EXTENSION_NAME}/{nameof(KHR_materials_iridescence.iridescenceIor)}",
                 ExtensionName = KHR_materials_iridescence_Factory.EXTENSION_NAME
@@ -478,7 +478,7 @@ namespace UnityGLTF.Plugins
             AddMap(iridescenceIor);
             var iridescenceThicknessMinimum = new MaterialPointerPropertyMap(MaterialPointerPropertyMap.PropertyTypeOption.Float)
             {
-                PropertyNames = new[] { "iridescenceThicknessMinimum" },
+                PropertyNames = UnityMaterialProperties.IridescenceThicknessMinimum,
                 GltfPropertyName =
                     $"extensions/{KHR_materials_iridescence_Factory.EXTENSION_NAME}/{nameof(KHR_materials_iridescence.iridescenceThicknessMinimum)}",
                 ExtensionName = KHR_materials_iridescence_Factory.EXTENSION_NAME
@@ -486,7 +486,7 @@ namespace UnityGLTF.Plugins
             AddMap(iridescenceThicknessMinimum);
             var iridescenceThicknessMaximum = new MaterialPointerPropertyMap(MaterialPointerPropertyMap.PropertyTypeOption.Float)
             {
-                PropertyNames = new[] { "iridescenceThicknessMaximum" },
+                PropertyNames = UnityMaterialProperties.IridescenceThicknessMaximum,
                 GltfPropertyName =
                     $"extensions/{KHR_materials_iridescence_Factory.EXTENSION_NAME}/{nameof(KHR_materials_iridescence.iridescenceThicknessMaximum)}",
                 ExtensionName = KHR_materials_iridescence_Factory.EXTENSION_NAME
@@ -496,7 +496,7 @@ namespace UnityGLTF.Plugins
             // KHR_materials_specular
             var specularFactor = new MaterialPointerPropertyMap(MaterialPointerPropertyMap.PropertyTypeOption.Float)
             {
-                PropertyNames = new[] { "_SpecularFactor", "specularFactor" },
+                PropertyNames = UnityMaterialProperties.SpecularFactor,
                 GltfPropertyName =
                     $"extensions/{KHR_materials_specular_Factory.EXTENSION_NAME}/{nameof(KHR_materials_specular.specularFactor)}",
                 ExtensionName = KHR_materials_specular_Factory.EXTENSION_NAME
@@ -505,7 +505,7 @@ namespace UnityGLTF.Plugins
 
             var specularColorFactor = new MaterialPointerPropertyMap(MaterialPointerPropertyMap.PropertyTypeOption.LinearColor)
             {
-                PropertyNames = new[] { "_SpecularColorFactor", "specularColorFactor" },
+                PropertyNames = UnityMaterialProperties.SpecularColor,
                 GltfPropertyName =
                     $"extensions/{KHR_materials_specular_Factory.EXTENSION_NAME}/{nameof(KHR_materials_specular.specularColorFactor)}",
                 ExtensionName = KHR_materials_specular_Factory.EXTENSION_NAME,
@@ -515,7 +515,7 @@ namespace UnityGLTF.Plugins
 
             var clearcoatFactor = new MaterialPointerPropertyMap(MaterialPointerPropertyMap.PropertyTypeOption.Float)
             {
-                PropertyNames = new[] { "_ClearcoatFactor", "clearcoatFactor" },
+                PropertyNames = UnityMaterialProperties.ClearcoatFactor,
                 GltfPropertyName = $"extensions/{KHR_materials_clearcoat_Factory.EXTENSION_NAME}/{nameof(KHR_materials_clearcoat.clearcoatFactor)}",
                 ExtensionName = KHR_materials_clearcoat_Factory.EXTENSION_NAME,
             };
@@ -523,16 +523,16 @@ namespace UnityGLTF.Plugins
             
             var clearcoatRoughnessFactor = new MaterialPointerPropertyMap(MaterialPointerPropertyMap.PropertyTypeOption.Float)
             {
-                PropertyNames = new[] { "_ClearcoatRoughnessFactor", "clearcoatRoughnessFactor" },
+                PropertyNames = UnityMaterialProperties.ClearcoatRoughnessFactor,
                 GltfPropertyName = $"extensions/{KHR_materials_clearcoat_Factory.EXTENSION_NAME}/{nameof(KHR_materials_clearcoat.clearcoatRoughnessFactor)}",
                 ExtensionName = KHR_materials_clearcoat_Factory.EXTENSION_NAME,
             };
             AddMap(clearcoatRoughnessFactor);
-
+            
             var sheenRoughnessFactor =
                 new MaterialPointerPropertyMap(MaterialPointerPropertyMap.PropertyTypeOption.Float)
                 {
-                    PropertyNames = new[] { "sheenRoughness", "_sheenRoughness", "sheenRoughnessFactor", "_sheenRoughnessFactor" },
+                    PropertyNames = UnityMaterialProperties.SheenRoughnessFactor,
                     GltfPropertyName =
                         $"extensions/{KHR_materials_sheen_Factory.EXTENSION_NAME}/{nameof(KHR_materials_sheen.sheenRoughnessFactor)}",
                     ExtensionName = KHR_materials_sheen_Factory.EXTENSION_NAME,
@@ -541,41 +541,41 @@ namespace UnityGLTF.Plugins
             var sheenColorFactor =
                 new MaterialPointerPropertyMap(MaterialPointerPropertyMap.PropertyTypeOption.Float)
                 {
-                    PropertyNames = new[] { "sheenColor", "_sheenColor", "sheenColorFactor", "_sheenColorFactor" },
+                    PropertyNames = UnityMaterialProperties.SheenColor,
                     GltfPropertyName =
                         $"extensions/{KHR_materials_sheen_Factory.EXTENSION_NAME}/{nameof(KHR_materials_sheen.sheenColorFactor)}",
                     ExtensionName = KHR_materials_sheen_Factory.EXTENSION_NAME,
                 };
             AddMap(sheenColorFactor);
             
-            AddTextureExtTransforms("pbrMetallicRoughness/baseColorTexture", new[] { "_MainTex", "_BaseMap", "_BaseColorTexture", "baseColorTexture" });
-            AddTextureExtTransforms("emissiveTexture", new[] { "_EmissionMap", "_EmissiveTexture", "emissiveTexture" } );
-            AddTextureExtTransforms("normalTexture", new[] { "_BumpMap", "_NormalTexture", "normalTexture" });
-            AddTextureExtTransforms("occlusionTexture", new[] { "_OcclusionMap", "_OcclusionTexture", "occlusionTexture" });
-            AddTextureExtTransforms("pbrMetallicRoughness/metallicRoughnessTexture", new[] { "metallicRoughnessTexture", "_metallicRoughnessTexture", "_MetallicRoughnessTexture" });
+            AddTextureExtTransforms("pbrMetallicRoughness/baseColorTexture", UnityMaterialProperties.BaseColorTexture);
+            AddTextureExtTransforms("emissiveTexture", UnityMaterialProperties.EmissiveTexture);
+            AddTextureExtTransforms("normalTexture", UnityMaterialProperties.NormalTexture);
+            AddTextureExtTransforms("occlusionTexture", UnityMaterialProperties.OcclusionTexture);
+            AddTextureExtTransforms("pbrMetallicRoughness/metallicRoughnessTexture", UnityMaterialProperties.MetallicRoughnessTexture);
 
             string clearCoatExt = "extensions/"+nameof(KHR_materials_clearcoat)+"/";
-            AddTextureExtTransforms(clearCoatExt+ nameof(KHR_materials_clearcoat.clearcoatTexture), new[] { "_ClearcoatTexture", "clearcoatTexture", "ClearcoatTexture" }, nameof(KHR_materials_clearcoat));
-            AddTextureExtTransforms(clearCoatExt+ nameof(KHR_materials_clearcoat.clearcoatRoughnessTexture), new[] { "_ClearcoatRoughnessTexture", "clearcoatRoughnessTexture", "ClearcoatRoughnessTexture" }, nameof(KHR_materials_clearcoat));
-            AddTextureExtTransforms(clearCoatExt+ nameof(KHR_materials_clearcoat.clearcoatNormalTexture), new[] { "_ClearcoatNormalTexture_", "clearcoatNormalTexture", "ClearcoatNormalTexture" }, nameof(KHR_materials_clearcoat));
+            AddTextureExtTransforms(clearCoatExt + nameof(KHR_materials_clearcoat.clearcoatTexture), UnityMaterialProperties.ClearcoatTexture, nameof(KHR_materials_clearcoat));
+            AddTextureExtTransforms(clearCoatExt+ nameof(KHR_materials_clearcoat.clearcoatRoughnessTexture), UnityMaterialProperties.ClearcoatRoughnessTexture, nameof(KHR_materials_clearcoat));
+            AddTextureExtTransforms(clearCoatExt+ nameof(KHR_materials_clearcoat.clearcoatNormalTexture), UnityMaterialProperties.ClearcoatNormalTexture, nameof(KHR_materials_clearcoat));
             
-            AddTextureExtTransforms("extensions/"+nameof(KHR_materials_volume)+"/"+nameof(KHR_materials_volume.thicknessTexture), new[] {"thicknessTexture", "_thicknessTexture"}, nameof(KHR_materials_volume));
-            AddTextureExtTransforms("extensions/"+nameof(KHR_materials_transmission)+"/"+nameof(KHR_materials_transmission.transmissionTexture), new[] {"transmissionTexture", "_transmissionTexture"}, nameof(KHR_materials_transmission));
+            AddTextureExtTransforms("extensions/"+nameof(KHR_materials_volume)+"/"+nameof(KHR_materials_volume.thicknessTexture), UnityMaterialProperties.ThicknessTexture, nameof(KHR_materials_volume));
+            AddTextureExtTransforms("extensions/"+nameof(KHR_materials_transmission)+"/"+nameof(KHR_materials_transmission.transmissionTexture), UnityMaterialProperties.TransmissionTexture, nameof(KHR_materials_transmission));
 
-            AddTextureExtTransforms("extensions/"+nameof(KHR_materials_iridescence)+"/"+nameof(KHR_materials_iridescence.iridescenceTexture), new[] { "iridescenceTexture", "_iridescenceTexture"}, nameof(KHR_materials_iridescence));
-            AddTextureExtTransforms("extensions/"+nameof(KHR_materials_iridescence)+"/"+nameof(KHR_materials_iridescence.iridescenceThicknessTexture), new[] { "iridescenceThicknessTexture", "_iridescenceThicknessTexture"}, nameof(KHR_materials_iridescence));
+            AddTextureExtTransforms("extensions/"+nameof(KHR_materials_iridescence)+"/"+nameof(KHR_materials_iridescence.iridescenceTexture), UnityMaterialProperties.IridescenceTexture, nameof(KHR_materials_iridescence));
+            AddTextureExtTransforms("extensions/"+nameof(KHR_materials_iridescence)+"/"+nameof(KHR_materials_iridescence.iridescenceThicknessTexture), UnityMaterialProperties.IridescenceThicknessTexture, nameof(KHR_materials_iridescence));
 
-            AddTextureExtTransforms("extensions/"+nameof(KHR_materials_specular)+"/"+nameof(KHR_materials_specular.specularTexture), new[] { "specularTexture", "_specularTexture"}, nameof(KHR_materials_specular));
-            AddTextureExtTransforms("extensions/"+nameof(KHR_materials_specular)+"/"+nameof(KHR_materials_specular.specularColorTexture), new[] { "specularColorTexture", "_specularColorTexture"}, nameof(KHR_materials_specular));
+            AddTextureExtTransforms("extensions/"+nameof(KHR_materials_specular)+"/"+nameof(KHR_materials_specular.specularTexture), UnityMaterialProperties.SpecularTexture, nameof(KHR_materials_specular));
+            AddTextureExtTransforms("extensions/"+nameof(KHR_materials_specular)+"/"+nameof(KHR_materials_specular.specularColorTexture), UnityMaterialProperties.SpecularColorTexture, nameof(KHR_materials_specular));
 
-            AddTextureExtTransforms("extensions/"+nameof(KHR_materials_sheen)+"/"+nameof(KHR_materials_sheen.sheenColorTexture), new[] {"sheenColorTexture", "_sheenColorTexture"}, nameof(KHR_materials_sheen));
-            AddTextureExtTransforms("extensions/"+nameof(KHR_materials_sheen)+"/"+nameof(KHR_materials_sheen.sheenRoughnessTexture), new[] {"sheenRoughnessTexture", "_sheenRoughnessTexture"}, nameof(KHR_materials_sheen));
+            AddTextureExtTransforms("extensions/"+nameof(KHR_materials_sheen)+"/"+nameof(KHR_materials_sheen.sheenColorTexture), UnityMaterialProperties.SheenColorTexture, nameof(KHR_materials_sheen));
+            AddTextureExtTransforms("extensions/"+nameof(KHR_materials_sheen)+"/"+nameof(KHR_materials_sheen.sheenRoughnessTexture), UnityMaterialProperties.SheenRoughnessTexture, nameof(KHR_materials_sheen));
             
-            AddTextureExtTransforms("extensions/"+nameof(KHR_materials_anisotropy_Factory.EXTENSION_NAME)+"/"+ nameof(KHR_materials_anisotropy.anisotropyTexture), new[] { "anisotropyTexture", "_anisotropyTexture", "anisotropyMap" }, nameof(KHR_materials_clearcoat));
+            AddTextureExtTransforms("extensions/"+nameof(KHR_materials_anisotropy_Factory.EXTENSION_NAME)+"/"+ nameof(KHR_materials_anisotropy.anisotropyTexture),UnityMaterialProperties.AnisotropyTexture, nameof(KHR_materials_clearcoat));
             var anisotropyStrength =
                 new MaterialPointerPropertyMap(MaterialPointerPropertyMap.PropertyTypeOption.Float)
                 {
-                    PropertyNames = new[] { "anisotropyStrength", "_anisotropyStrength", "anisotropyFactor", "_anisotropyFactor" },
+                    PropertyNames = UnityMaterialProperties.AnisotropyStrength,
                     GltfPropertyName = $"extensions/{KHR_materials_anisotropy_Factory.EXTENSION_NAME}/{nameof(KHR_materials_anisotropy.anisotropyStrength)}",
                     ExtensionName = KHR_materials_anisotropy_Factory.EXTENSION_NAME,
                 };
@@ -583,7 +583,7 @@ namespace UnityGLTF.Plugins
             var anisotropyRotation =
                 new MaterialPointerPropertyMap(MaterialPointerPropertyMap.PropertyTypeOption.Float)
                 {
-                    PropertyNames = new[] { "anisotropyRotation", "_anisotropyRotation", "anisotropyDirection", "_anisotropyDirection" },
+                    PropertyNames = UnityMaterialProperties.AnisotropyRotation,
                     GltfPropertyName = $"extensions/{KHR_materials_anisotropy_Factory.EXTENSION_NAME}/{nameof(KHR_materials_anisotropy.anisotropyRotation)}",
                     ExtensionName = KHR_materials_anisotropy_Factory.EXTENSION_NAME,
                 };

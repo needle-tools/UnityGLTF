@@ -338,7 +338,7 @@ namespace UnityGLTF
 				}
 			}
 			else
-			if (TryGetTextureFromMaterial(materialObj, out var normalTexture, out var normalTexProp, UnityMaterialProperties.NormalMap))
+			if (TryGetTextureFromMaterial(materialObj, out var normalTexture, out var normalTexProp, UnityMaterialProperties.NormalTexture))
 			{
 				if (normalTexture)
 				{
