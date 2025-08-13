@@ -584,7 +584,6 @@ namespace UnityGLTF
             "_anisotropyFactor",
             "_AnisotropyStrength",
             "_Anisotropy",
-            "anisotropyStrength",
         });
 
         public static readonly FloatProperties AnisotropyRotation = new( new string[]
@@ -597,7 +596,6 @@ namespace UnityGLTF
             "_anisotropyAngle",
             "_AnisotropyRotation",
             "_AnisotropyAngle",
-            "anisotropyRotation",
         });
 
         public static readonly FloatProperties Dispersion = new( new string[]
