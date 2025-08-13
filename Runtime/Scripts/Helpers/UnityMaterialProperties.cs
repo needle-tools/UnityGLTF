@@ -101,10 +101,16 @@ namespace UnityGLTF
                 propertyName = null;
                 for (int i = 0; i < ids.Length; i++)
                 {
-                    if (material.HasProperty(ids[i]))
+                    if (material.HasInteger(ids[i]))
                     {
                         propertyName = names[i];
                         value = material.GetInteger(ids[i]);
+                        return true;
+                    }
+                    else if (material.HasFloat(ids[i]))
+                    {
+                        propertyName = names[i];
+                        value = Mathf.RoundToInt(material.GetFloat(ids[i]));
                         return true;
                     }
                 }
