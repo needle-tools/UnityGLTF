@@ -550,9 +550,25 @@ namespace UnityGLTF
 				
 				stream.Read(buffer, 0, (int)stream.Length);
 				await YieldOnTimeoutAndThrowOnLowMemory();
-				using (NativeArray<byte> bufferNative = new NativeArray<byte>(buffer, Allocator.TempJob))
+
+				NativeArray<byte> nativeBuffer;
+				ulong gcHandle;
+				unsafe
 				{
-					texture = await CheckMimeTypeAndLoadImage(image, texture, bufferNative, markGpuOnly, isLinear);
+					
+					var ptr = UnsafeUtility.PinGCArrayAndGetDataAddress(buffer, out gcHandle);
+					nativeBuffer = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<byte>(ptr, buffer.Length, Allocator.None);
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+					NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref nativeBuffer, AtomicSafetyHandle.GetTempMemoryHandle());
+#endif
+				}
+				try
+				{
+					texture = await CheckMimeTypeAndLoadImage(image, texture, nativeBuffer, markGpuOnly, isLinear);
+				}
+				finally
+				{
+					UnsafeUtility.ReleaseGCObject(gcHandle);
 				}
 			}
 
