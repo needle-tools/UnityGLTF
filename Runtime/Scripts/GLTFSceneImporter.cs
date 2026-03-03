@@ -395,7 +395,6 @@ namespace UnityGLTF
 			if (stream is MemoryStream memoryStream)
 			{
 				// To safe memory footprint, we try to create a NativeArray without Allocation directly from the MemoryStream buffer.
-				// This 
 				if (memoryStream.TryGetBuffer(out var memStreamBuffer))
 				{
 					unsafe
@@ -403,7 +402,7 @@ namespace UnityGLTF
 						var ptr = UnsafeUtility.PinGCArrayAndGetDataAddress(memStreamBuffer.Array, out var gcHandle);
 						var nativeBuffer = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<byte>(ptr, memStreamBuffer.Count, Allocator.None);
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-						NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref nativeBuffer, AtomicSafetyHandle.GetTempMemoryHandle());
+						NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref nativeBuffer,  AtomicSafetyHandle.Create()); 
 #endif
 						
 						_nativeBuffers.Add(stream,new (nativeBuffer, gcHandle));
