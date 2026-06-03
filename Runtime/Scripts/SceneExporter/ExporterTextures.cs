@@ -218,7 +218,7 @@ namespace UnityGLTF
 			foreach (var plugin in _plugins)
 				plugin?.BeforeTextureExport(this, ref uniqueTexture, textureSlot);
 
-			TextureId id = GetTextureId(_root, uniqueTexture);
+			TextureId id = FindTextureIdWithCompatibleSettings(_root, uniqueTexture);
 			if (id != null)
 			{
 				return id;

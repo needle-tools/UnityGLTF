@@ -249,6 +249,28 @@ namespace UnityGLTF
 					Mathf.Approximately(occlusionRangeMax, other.occlusionRangeMax);
 			}
 
+			public bool IsThisExistingCompatibleWith(TextureExportSettings other)
+			{
+				bool alphaModeCompatible = alphaMode == other.alphaMode;
+				if (alphaMode == AlphaMode.Heuristic || other.alphaMode == AlphaMode.Heuristic)
+				{
+					// if either is heuristic, we can be compatible as long as they don't contradict each other (ie one is always and the other is never)
+					alphaModeCompatible = !(alphaMode == AlphaMode.Always && other.alphaMode == AlphaMode.Never) &&
+					                      !(alphaMode == AlphaMode.Never && other.alphaMode == AlphaMode.Always);
+				}
+				return
+					conversion == other.conversion &&
+					alphaModeCompatible &&
+					linear == other.linear &&
+					Mathf.Approximately(smoothnessRangeMin, other.smoothnessRangeMin) &&
+					Mathf.Approximately(smoothnessRangeMax, other.smoothnessRangeMax) &&
+					Mathf.Approximately(metallicRangeMin, other.metallicRangeMin) &&
+					Mathf.Approximately(metallicRangeMax, other.metallicRangeMax) &&
+					Mathf.Approximately(occlusionRangeMin, other.occlusionRangeMin) &&
+					Mathf.Approximately(occlusionRangeMax, other.occlusionRangeMax);			
+				
+			}
+
 			public override bool Equals(object obj)
 			{
 				return obj is TextureExportSettings other && Equals(other);
@@ -460,6 +482,11 @@ namespace UnityGLTF
 			public bool Equals(UniqueTexture other)
 			{
 				return Equals(Texture, other.Texture) && MaxSize == other.MaxSize && ExportSettings == other.ExportSettings;
+			}
+
+			public bool EqualsWithCompatibleSettings(UniqueTexture other)
+			{
+				return Equals(Texture, other.Texture) && MaxSize == other.MaxSize && ExportSettings.IsThisExistingCompatibleWith(other.ExportSettings);
 			}
 
 			public override bool Equals(object obj)
@@ -1422,6 +1449,22 @@ namespace UnityGLTF
 			for (var i = 0; i < _textures.Count; i++)
 			{
 				if (_textures[i].Equals(textureObj))
+				{
+					return new TextureId
+					{
+						Id = i,
+						Root = root
+					};
+				}
+			}
+			return null;
+		}
+		
+		public TextureId FindTextureIdWithCompatibleSettings(GLTFRoot root, UniqueTexture textureObj)
+		{
+			for (var i = 0; i < _textures.Count; i++)
+			{
+				if (_textures[i].EqualsWithCompatibleSettings(textureObj))
 				{
 					return new TextureId
 					{
